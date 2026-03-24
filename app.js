@@ -78,15 +78,19 @@ async function deleteSale(id) {
 function getLotStats(lotId) {
   const lot = state.lots.find(l => l.id === lotId);
   const sales = state.sales.filter(s => s.lotId === lotId);
-  const totalSales = sales.reduce((sum, s) => sum + s.price, 0);
+  const totalGross = sales.reduce((sum, s) => sum + s.price, 0);
+  const totalFees = sales.reduce((sum, s) => sum + (s.fees || 0), 0);
+  const totalNet = totalGross - totalFees;
   const cost = lot ? lot.cost : 0;
-  return { totalSales, cost, profit: totalSales - cost, salesCount: sales.length };
+  return { totalGross, totalFees, totalNet, cost, profit: totalNet - cost, salesCount: sales.length };
 }
 
 function getOverallStats() {
   const totalInvested = state.lots.reduce((sum, l) => sum + l.cost, 0);
-  const totalSales = state.sales.reduce((sum, s) => sum + s.price, 0);
-  return { totalInvested, totalSales, profit: totalSales - totalInvested, lotCount: state.lots.length };
+  const totalGross = state.sales.reduce((sum, s) => sum + s.price, 0);
+  const totalFees = state.sales.reduce((sum, s) => sum + (s.fees || 0), 0);
+  const totalNet = totalGross - totalFees;
+  return { totalInvested, totalGross, totalFees, totalNet, profit: totalNet - totalInvested, lotCount: state.lots.length };
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -217,8 +221,8 @@ function renderDashboard() {
         </div>
         <div class="stat-card">
           <div class="stat-label">Total Revenue</div>
-          <div class="stat-value positive">${fmt(stats.totalSales)}</div>
-          <div class="stat-sub">${state.sales.length} sale${state.sales.length !== 1 ? 's' : ''}</div>
+          <div class="stat-value positive">${fmt(stats.totalNet)}</div>
+          <div class="stat-sub">${state.sales.length} sale${state.sales.length !== 1 ? 's' : ''} · ${fmt(stats.totalFees)} fees</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Net Profit</div>
@@ -259,7 +263,7 @@ function renderDashboard() {
           <div class="table-wrap">
             <table class="table">
               <thead><tr>
-                <th>Name</th><th>Category</th><th>Date</th><th>Cost</th><th>Revenue</th><th>Profit</th>
+                <th>Name</th><th>Category</th><th>Date</th><th>Cost</th><th>Net Revenue</th><th>Profit</th>
               </tr></thead>
               <tbody>
                 ${recentLots.map(lot => {
@@ -271,7 +275,7 @@ function renderDashboard() {
                       <td><span class="badge badge-${lot.category}">${catIcon(lot.category)} ${capitalize(lot.category)}</span></td>
                       <td>${fmtDate(lot.date)}</td>
                       <td>${fmt(lot.cost)}</td>
-                      <td class="positive">${fmt(s.totalSales)}</td>
+                      <td class="positive">${fmt(s.totalNet)}</td>
                       <td class="${lpc}">${fmtSigned(s.profit)}</td>
                     </tr>`;
                 }).join('')}
@@ -345,7 +349,7 @@ function renderLots() {
                 ${lot.notes ? `<p class="lot-notes">${lot.notes}</p>` : ''}
                 <div class="lot-financials">
                   <div class="lot-fin-row"><span>Cost</span><span>${fmt(lot.cost)}</span></div>
-                  <div class="lot-fin-row"><span>Revenue (${s.salesCount} sales)</span><span class="positive">${fmt(s.totalSales)}</span></div>
+                  <div class="lot-fin-row"><span>Net Revenue (${s.salesCount} sales)</span><span class="positive">${fmt(s.totalNet)}</span></div>
                   <div class="lot-fin-row lot-fin-total">
                     <span>Profit</span>
                     <span class="${lpc}">${fmtSigned(s.profit)} ${pct ? `(${pct})` : ''}</span>
@@ -394,7 +398,9 @@ function renderLotDetail() {
         </div>
         <div class="lot-pnl">
           <div class="pnl-row"><span>Cost</span><span>${fmt(lot.cost)}</span></div>
-          <div class="pnl-row"><span>Total Revenue</span><span class="positive">${fmt(stats.totalSales)}</span></div>
+          <div class="pnl-row"><span>Gross Sales</span><span>${fmt(stats.totalGross)}</span></div>
+          <div class="pnl-row"><span>Fees</span><span class="negative">-${fmt(stats.totalFees)}</span></div>
+          <div class="pnl-row"><span>Net Revenue</span><span class="positive">${fmt(stats.totalNet)}</span></div>
           <div class="pnl-row pnl-total"><span>Net Profit</span><span class="${pc}">${fmtSigned(stats.profit)}</span></div>
           ${pct ? `<div class="pnl-row"><span>ROI</span><span class="${pc}">${pct}</span></div>` : ''}
         </div>
@@ -411,17 +417,22 @@ function renderLotDetail() {
         ` : `
           <div class="table-wrap">
             <table class="table">
-              <thead><tr><th>Item</th><th>Platform</th><th>Date</th><th>Price</th><th></th></tr></thead>
+              <thead><tr><th>Item</th><th>Platform</th><th>Date</th><th>Sale</th><th>Fees</th><th>Net</th><th></th></tr></thead>
               <tbody>
-                ${sales.map(sale => `
+                ${sales.map(sale => {
+                  const fees = sale.fees || 0;
+                  const net = sale.price - fees;
+                  return `
                   <tr>
                     <td>${sale.item}</td>
                     <td><span class="platform-tag">${sale.platform || '—'}</span></td>
                     <td>${fmtDate(sale.date)}</td>
-                    <td class="positive">${fmt(sale.price)}</td>
+                    <td>${fmt(sale.price)}</td>
+                    <td class="negative">${fees > 0 ? '-' + fmt(fees) : '—'}</td>
+                    <td class="positive">${fmt(net)}</td>
                     <td><button class="btn-delete-sale" data-sale-id="${sale.id}">✕</button></td>
-                  </tr>
-                `).join('')}
+                  </tr>`;
+                }).join('')}
               </tbody>
             </table>
           </div>
@@ -498,9 +509,13 @@ function renderModal() {
               <input type="number" id="sale-price" class="input" placeholder="0.00" min="0" step="0.01">
             </div>
             <div class="form-group">
-              <label>Date Sold *</label>
-              <input type="date" id="sale-date" class="input" value="${today()}">
+              <label>Fees (eBay, PayPal, etc.)</label>
+              <input type="number" id="sale-fees" class="input" placeholder="0.00" min="0" step="0.01">
             </div>
+          </div>
+          <div class="form-group">
+            <label>Date Sold *</label>
+            <input type="date" id="sale-date" class="input" value="${today()}">
           </div>
           <div class="form-group">
             <label>Platform</label>
@@ -621,12 +636,14 @@ function bindApp() {
   document.getElementById('sale-submit-btn')?.addEventListener('click', async () => {
     const item = document.getElementById('sale-item').value.trim();
     const price = parseFloat(document.getElementById('sale-price').value);
+    const fees = parseFloat(document.getElementById('sale-fees').value) || 0;
     const date = document.getElementById('sale-date').value;
     if (!item || isNaN(price) || !date) { alert('Please fill in all required fields.'); return; }
     await addSale({
       lotId: state.selectedLotId,
       item,
       price,
+      fees,
       date,
       platform: document.getElementById('sale-platform').value,
     });
