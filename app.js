@@ -138,6 +138,7 @@ function getChallengeStats() {
 }
 
 // ── Helpers ───────────────────────────────────────────────────
+const escHtml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const catIcon = cat => ({ games: '🎮', cards: '🃏', toys: '🧸', other: '📦' }[cat] || '📦');
 const capitalize = s => s.charAt(0).toUpperCase() + s.slice(1);
 const fmt = n => '$' + Math.abs(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
