@@ -23,6 +23,7 @@ const state = {
   lots: [],
   sales: [],
   flips: [],
+  expenses: [],
   loaded: false,
   flipsLoaded: false,
   modal: null,
@@ -55,6 +56,11 @@ function initFirebase() {
     state.flipsLoaded = true;
     render();
   });
+
+  onSnapshot(collection(db, 'profit_expenses'), snap => {
+    state.expenses = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    render();
+  });
 }
 
 // ── Storage ──────────────────────────────────────────────────
@@ -81,6 +87,15 @@ async function addSale(data) {
 
 async function deleteSale(id) {
   await deleteDoc(doc(db, 'profit_sales', id));
+}
+
+async function addExpense(data) {
+  const id = 'exp_' + Date.now();
+  await setDoc(doc(db, 'profit_expenses', id), { id, ...data, createdAt: new Date().toISOString() });
+}
+
+async function deleteExpense(id) {
+  await deleteDoc(doc(db, 'profit_expenses', id));
 }
 
 async function addFlip(data) {
@@ -210,6 +225,7 @@ function renderApp() {
   else if (state.view === 'lots') content = renderLots();
   else if (state.view === 'lot-detail') content = renderLotDetail();
   else if (state.view === 'challenge') content = renderChallenge();
+  else if (state.view === 'expenses') content = renderExpenses();
 
   return `
     <div class="app">
@@ -223,6 +239,7 @@ function renderApp() {
             <button class="nav-btn ${state.view === 'dashboard' ? 'active' : ''}" data-nav="dashboard">Dashboard</button>
             <button class="nav-btn ${['lots','lot-detail'].includes(state.view) ? 'active' : ''}" data-nav="lots">Lots</button>
             <button class="nav-btn ${state.view === 'challenge' ? 'active' : ''}" data-nav="challenge">🏆 $10→$5K</button>
+            <button class="nav-btn ${state.view === 'expenses' ? 'active' : ''}" data-nav="expenses">💸 Expenses</button>
           </nav>
           <button class="btn btn-ghost" id="logout-btn">Logout</button>
         </div>
@@ -582,7 +599,106 @@ function renderModal() {
     </div>`;
   }
 
+  if (state.modal === 'add-expense') {
+    return `${overlay}
+      <div class="modal">
+        <div class="modal-header">
+          <h3>Add Expense</h3>
+          <button class="modal-close" id="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Description *</label>
+            <input type="text" id="exp-desc" class="input" placeholder="e.g. Bubble mailers, tape, etc.">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Category</label>
+              <select id="exp-category" class="select">
+                ${EXPENSE_CATS.map(c => `<option value="${c}">${c}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Date *</label>
+              <input type="date" id="exp-date" class="input" value="${today()}">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Amount *</label>
+            <input type="number" id="exp-amount" class="input" placeholder="0.00" min="0" step="0.01">
+          </div>
+          <div class="form-group">
+            <label>Notes</label>
+            <input type="text" id="exp-notes" class="input" placeholder="Optional">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
+          <button class="btn btn-primary" id="expense-submit-btn">Add Expense</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
   return '';
+}
+
+// ── Expenses View ─────────────────────────────────────────────
+const EXPENSE_CATS = ['Shipping Supplies', 'Packaging', 'Shipping Costs', 'Platform Fees', 'Tools & Equipment', 'Travel', 'Other'];
+
+function renderExpenses() {
+  const sorted = [...state.expenses].sort((a, b) => new Date(b.date) - new Date(a.date));
+  const totalSpent = state.expenses.reduce((s, e) => s + (e.amount || 0), 0);
+
+  const byCat = {};
+  state.expenses.forEach(e => {
+    const cat = e.category || 'Other';
+    byCat[cat] = (byCat[cat] || 0) + (e.amount || 0);
+  });
+  const topCats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+
+  return `
+    <div class="expenses-view">
+      <div class="page-header">
+        <h2>💸 Expenses</h2>
+        <button class="btn btn-primary" data-open-modal="add-expense">+ Add Expense</button>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Total Spent</div>
+          <div class="stat-value negative">${fmt(totalSpent)}</div>
+          <div class="stat-sub">${state.expenses.length} expense${state.expenses.length !== 1 ? 's' : ''}</div>
+        </div>
+        ${topCats.slice(0, 3).map(([cat, amt]) => `
+          <div class="stat-card">
+            <div class="stat-label">${cat}</div>
+            <div class="stat-value">${fmt(amt)}</div>
+            <div class="stat-sub">${((amt / totalSpent) * 100).toFixed(0)}% of total</div>
+          </div>
+        `).join('')}
+      </div>
+
+      <div class="card mt-24">
+        <div class="card-header"><h3>All Expenses</h3></div>
+        ${sorted.length === 0
+          ? `<div class="empty-state"><div class="empty-icon">💸</div><p>No expenses logged yet.</p></div>`
+          : `<div class="table-wrap"><table class="table">
+              <thead><tr><th>Date</th><th>Description</th><th>Category</th><th class="money">Amount</th><th></th></tr></thead>
+              <tbody>
+                ${sorted.map(e => `
+                  <tr>
+                    <td class="date-cell">${fmtDate(e.date)}</td>
+                    <td>${escHtml(e.description)}</td>
+                    <td><span class="badge badge-cat">${escHtml(e.category || 'Other')}</span></td>
+                    <td class="money negative">${fmt(e.amount)}</td>
+                    <td class="action-cell"><button class="btn btn-danger btn-xs" data-delete-expense="${e.id}">Delete</button></td>
+                  </tr>`).join('')}
+              </tbody>
+            </table></div>`}
+      </div>
+    </div>
+  `;
 }
 
 // ── Event Binding ─────────────────────────────────────────────
@@ -945,6 +1061,29 @@ function bindApp() {
   document.querySelectorAll('[data-delete-flip]').forEach(btn =>
     btn.addEventListener('click', async () => {
       if (confirm('Delete this flip?')) await deleteFlip(btn.dataset.deleteFlip);
+    })
+  );
+
+  // Submit expense
+  document.getElementById('expense-submit-btn')?.addEventListener('click', async () => {
+    const description = document.getElementById('exp-desc').value.trim();
+    const amount = parseFloat(document.getElementById('exp-amount').value);
+    const date = document.getElementById('exp-date').value;
+    if (!description || isNaN(amount) || !date) { alert('Please fill in description, amount, and date.'); return; }
+    await addExpense({
+      description,
+      category: document.getElementById('exp-category').value,
+      amount,
+      date,
+      notes: document.getElementById('exp-notes').value.trim(),
+    });
+    closeModal();
+  });
+
+  // Delete expense
+  document.querySelectorAll('[data-delete-expense]').forEach(btn =>
+    btn.addEventListener('click', async () => {
+      if (confirm('Delete this expense?')) await deleteExpense(btn.dataset.deleteExpense);
     })
   );
 
