@@ -22,9 +22,12 @@ const state = {
   selectedLotId: null,
   lots: [],
   sales: [],
+  flips: [],
   loaded: false,
+  flipsLoaded: false,
   modal: null,
   editLot: null,
+  editFlip: null,
   filterCategory: 'all',
   sortLots: 'date-desc',
 };
@@ -44,6 +47,12 @@ function initFirebase() {
   onSnapshot(collection(db, 'profit_sales'), snap => {
     state.sales = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if (!state.loaded) state.loaded = true;
+    render();
+  });
+
+  onSnapshot(collection(db, 'challenge_flips'), snap => {
+    state.flips = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    state.flipsLoaded = true;
     render();
   });
 }
@@ -74,6 +83,20 @@ async function deleteSale(id) {
   await deleteDoc(doc(db, 'profit_sales', id));
 }
 
+async function addFlip(data) {
+  const id = 'flip_' + Date.now();
+  await setDoc(doc(db, 'challenge_flips', id), { id, ...data, createdAt: new Date().toISOString() });
+}
+
+async function updateFlip(id, data) {
+  const existing = state.flips.find(f => f.id === id) || {};
+  await setDoc(doc(db, 'challenge_flips', id), { ...existing, ...data });
+}
+
+async function deleteFlip(id) {
+  await deleteDoc(doc(db, 'challenge_flips', id));
+}
+
 // ── Stats ─────────────────────────────────────────────────────
 function getLotStats(lotId) {
   const lot = state.lots.find(l => l.id === lotId);
@@ -91,6 +114,27 @@ function getOverallStats() {
   const totalFees = state.sales.reduce((sum, s) => sum + (s.fees || 0), 0);
   const totalNet = totalGross - totalFees;
   return { totalInvested, totalGross, totalFees, totalNet, profit: totalNet - totalInvested, lotCount: state.lots.length };
+}
+
+// ── Challenge Stats ───────────────────────────────────────────
+const CHALLENGE_START = 10;
+const CHALLENGE_GOAL  = 5000;
+
+function getChallengeStats() {
+  const totalSpent  = state.flips.reduce((s, f) => s + (f.boughtFor || 0), 0);
+  const totalSold   = state.flips.filter(f => f.status === 'sold').reduce((s, f) => s + (f.soldFor || 0), 0);
+  const currentCash = CHALLENGE_START - totalSpent + totalSold;
+  const listedValue = state.flips
+    .filter(f => f.status !== 'sold')
+    .reduce((s, f) => s + (f.listedPrice || f.boughtFor || 0), 0);
+  const totalPotential = currentCash + listedValue;
+  const progress = Math.min((currentCash / CHALLENGE_GOAL) * 100, 100);
+  const completedFlips = state.flips.filter(f => f.status === 'sold');
+  const bestFlip = completedFlips.length
+    ? Math.max(...completedFlips.map(f => (f.soldFor || 0) - (f.boughtFor || 0)))
+    : 0;
+  const totalProfit = completedFlips.reduce((s, f) => s + ((f.soldFor || 0) - (f.boughtFor || 0)), 0);
+  return { currentCash, listedValue, totalPotential, progress, bestFlip, totalProfit, completedCount: completedFlips.length };
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -164,6 +208,7 @@ function renderApp() {
   if (state.view === 'dashboard') content = renderDashboard();
   else if (state.view === 'lots') content = renderLots();
   else if (state.view === 'lot-detail') content = renderLotDetail();
+  else if (state.view === 'challenge') content = renderChallenge();
 
   return `
     <div class="app">
@@ -176,6 +221,7 @@ function renderApp() {
           <nav class="header-nav">
             <button class="nav-btn ${state.view === 'dashboard' ? 'active' : ''}" data-nav="dashboard">Dashboard</button>
             <button class="nav-btn ${['lots','lot-detail'].includes(state.view) ? 'active' : ''}" data-nav="lots">Lots</button>
+            <button class="nav-btn ${state.view === 'challenge' ? 'active' : ''}" data-nav="challenge">🏆 $10→$5K</button>
           </nav>
           <button class="btn btn-ghost" id="logout-btn">Logout</button>
         </div>
@@ -539,6 +585,217 @@ function renderModal() {
 }
 
 // ── Event Binding ─────────────────────────────────────────────
+// ── Challenge View ────────────────────────────────────────────
+function renderChallenge() {
+  const s = getChallengeStats();
+  const active = state.flips.filter(f => f.status !== 'sold').sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const sold   = state.flips.filter(f => f.status === 'sold').sort((a,b) => new Date(b.dateSold||b.createdAt) - new Date(a.dateSold||a.createdAt));
+  const pct    = s.progress.toFixed(1);
+  const cashCls = s.currentCash >= 0 ? 'positive' : 'negative';
+
+  return `
+    <div class="challenge-view">
+      <div class="page-header">
+        <h2>🏆 $10 → $5,000 Challenge</h2>
+        <button class="btn btn-primary" data-open-modal="add-flip">+ Add Flip</button>
+      </div>
+
+      <!-- Progress bar -->
+      <div class="challenge-progress-card">
+        <div class="cp-top">
+          <span class="cp-label">Progress</span>
+          <span class="cp-pct">${pct}%</span>
+        </div>
+        <div class="cp-bar-track">
+          <div class="cp-bar-fill" style="width:${Math.max(0,s.progress)}%"></div>
+        </div>
+        <div class="cp-ends">
+          <span>$10</span>
+          <span>$5,000</span>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="challenge-stats">
+        <div class="cs-card cs-card--green">
+          <div class="cs-label">Current Cash</div>
+          <div class="cs-value ${cashCls}">${fmt(s.currentCash)}</div>
+          <div class="cs-sub">Money in hand</div>
+        </div>
+        <div class="cs-card cs-card--blue">
+          <div class="cs-label">Listed Value</div>
+          <div class="cs-value">${fmt(s.listedValue)}</div>
+          <div class="cs-sub">${active.length} item${active.length !== 1 ? 's' : ''} out there</div>
+        </div>
+        <div class="cs-card cs-card--purple">
+          <div class="cs-label">Total Potential</div>
+          <div class="cs-value">${fmt(s.totalPotential)}</div>
+          <div class="cs-sub">Cash + listed</div>
+        </div>
+        <div class="cs-card cs-card--yellow">
+          <div class="cs-label">Best Flip</div>
+          <div class="cs-value positive">${fmt(s.bestFlip)}</div>
+          <div class="cs-sub">${s.completedCount} flip${s.completedCount !== 1 ? 's' : ''} completed</div>
+        </div>
+      </div>
+
+      <!-- Active items -->
+      <div class="section">
+        <h3>Active (${active.length})</h3>
+        ${active.length === 0
+          ? `<div class="empty-state small"><p>No active items — add your first flip!</p></div>`
+          : `<div class="table-wrap"><table class="table">
+              <thead><tr><th>Item</th><th>Category</th><th>Date</th><th>Bought For</th><th>Listed At</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                ${active.map(f => `
+                  <tr>
+                    <td><strong>${escHtml(f.item)}</strong>${f.notes ? `<div class="item-note">${escHtml(f.notes)}</div>` : ''}</td>
+                    <td>${catIcon(f.category)} ${capitalize(f.category)}</td>
+                    <td class="text-dim">${fmtDate(f.date)}</td>
+                    <td>${fmt(f.boughtFor)}</td>
+                    <td>${f.listedPrice ? fmt(f.listedPrice) : '<span class="text-dim">—</span>'}</td>
+                    <td><span class="flip-status flip-status--${f.status}">${f.status === 'listed' ? 'Listed' : 'In Hand'}</span></td>
+                    <td class="action-cell">
+                      <button class="btn-sm-action" data-sell-flip="${f.id}">Mark Sold</button>
+                      <button class="btn-sm-action btn-sm-edit" data-edit-flip="${f.id}">Edit</button>
+                      <button class="btn-sm-action btn-sm-del" data-delete-flip="${f.id}">Del</button>
+                    </td>
+                  </tr>`).join('')}
+              </tbody>
+            </table></div>`}
+      </div>
+
+      <!-- Completed flips -->
+      <div class="section">
+        <h3>Completed Flips (${sold.length})</h3>
+        ${sold.length === 0
+          ? `<div class="empty-state small"><p>No completed flips yet.</p></div>`
+          : `<div class="table-wrap"><table class="table">
+              <thead><tr><th>Item</th><th>Category</th><th>Bought For</th><th>Sold For</th><th>Profit</th><th>Platform</th><th>Date Sold</th><th></th></tr></thead>
+              <tbody>
+                ${sold.map(f => {
+                  const profit = (f.soldFor || 0) - (f.boughtFor || 0);
+                  const pc = profit >= 0 ? 'positive' : 'negative';
+                  return `<tr>
+                    <td><strong>${escHtml(f.item)}</strong></td>
+                    <td>${catIcon(f.category)} ${capitalize(f.category)}</td>
+                    <td>${fmt(f.boughtFor)}</td>
+                    <td class="positive">${fmt(f.soldFor)}</td>
+                    <td class="${pc}">${fmtSigned(profit)}</td>
+                    <td class="text-dim">${f.platform || '—'}</td>
+                    <td class="text-dim">${f.dateSold ? fmtDate(f.dateSold) : '—'}</td>
+                    <td><button class="btn-sm-action btn-sm-del" data-delete-flip="${f.id}">Del</button></td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table></div>`}
+      </div>
+    </div>
+
+    ${state.modal === 'add-flip' || state.modal === 'edit-flip' ? renderFlipModal() : ''}
+    ${state.modal === 'sell-flip' ? renderSellModal() : ''}
+  `;
+}
+
+function renderFlipModal() {
+  const f = state.editFlip;
+  return `
+    <div class="modal-overlay active" id="modal-overlay">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>${f ? 'Edit Flip' : 'Add Flip'}</h3>
+          <button class="modal-close" id="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Item *</label>
+            <input type="text" id="flip-item" class="input" placeholder="e.g. Pokemon Booster Box" value="${escHtml(f?.item||'')}">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Category</label>
+              <select id="flip-category" class="select">
+                <option value="games"  ${f?.category==='games'  ?'selected':''}>🎮 Games</option>
+                <option value="cards"  ${f?.category==='cards'  ?'selected':''}>🃏 Cards</option>
+                <option value="toys"   ${f?.category==='toys'   ?'selected':''}>🧸 Toys</option>
+                <option value="other"  ${f?.category==='other'  ?'selected':''}>📦 Other</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Date Bought *</label>
+              <input type="date" id="flip-date" class="input" value="${f?.date || today()}">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Bought For *</label>
+              <input type="number" id="flip-bought" class="input" placeholder="0.00" value="${f?.boughtFor||''}" step="0.01" min="0">
+            </div>
+            <div class="form-group">
+              <label>Listed Price</label>
+              <input type="number" id="flip-listed" class="input" placeholder="0.00" value="${f?.listedPrice||''}" step="0.01" min="0">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Status</label>
+              <select id="flip-status" class="select">
+                <option value="active" ${f?.status==='active'||!f?'selected':''}>In Hand</option>
+                <option value="listed" ${f?.status==='listed'?'selected':''}>Listed for Sale</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Notes</label>
+              <input type="text" id="flip-notes" class="input" placeholder="Optional" value="${escHtml(f?.notes||'')}">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
+          <button class="btn btn-primary" id="flip-submit-btn">${f ? 'Save Changes' : 'Add Flip'}</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderSellModal() {
+  const f = state.flips.find(fl => fl.id === state.sellFlipId);
+  if (!f) return '';
+  return `
+    <div class="modal-overlay active" id="modal-overlay">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>Mark as Sold</h3>
+          <button class="modal-close" id="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="text-dim">Recording sale for: <strong>${escHtml(f.item)}</strong></p>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Sold For *</label>
+              <input type="number" id="sell-price" class="input" placeholder="0.00" step="0.01" min="0">
+            </div>
+            <div class="form-group">
+              <label>Date Sold</label>
+              <input type="date" id="sell-date" class="input" value="${today()}">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Platform</label>
+            <select id="sell-platform" class="select">
+              <option value="">— Select —</option>
+              ${['eBay','Facebook Marketplace','Local','Whatnot','Amazon','Heritage','Goldin','Other'].map(p=>`<option value="${p}">${p}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
+          <button class="btn btn-primary" id="sell-submit-btn">Save Sale</button>
+        </div>
+      </div>
+    </div>`;
+}
+
 function bindApp() {
   // Logout
   document.getElementById('logout-btn')?.addEventListener('click', () => {
@@ -631,6 +888,64 @@ function bindApp() {
     }
     closeModal();
   });
+
+  // Challenge — add/edit flip
+  document.getElementById('flip-submit-btn')?.addEventListener('click', async () => {
+    const item     = document.getElementById('flip-item').value.trim();
+    const boughtFor = parseFloat(document.getElementById('flip-bought').value);
+    const date     = document.getElementById('flip-date').value;
+    if (!item || isNaN(boughtFor) || !date) { alert('Please fill in Item, Bought For, and Date.'); return; }
+    const data = {
+      item,
+      category:    document.getElementById('flip-category').value,
+      date,
+      boughtFor,
+      listedPrice: parseFloat(document.getElementById('flip-listed').value) || 0,
+      status:      document.getElementById('flip-status').value,
+      notes:       document.getElementById('flip-notes').value.trim(),
+    };
+    if (state.editFlip) await updateFlip(state.editFlip.id, data);
+    else                await addFlip(data);
+    state.modal = null; state.editFlip = null; render();
+  });
+
+  // Challenge — edit flip button
+  document.querySelectorAll('[data-edit-flip]').forEach(btn =>
+    btn.addEventListener('click', () => {
+      state.editFlip = state.flips.find(f => f.id === btn.dataset.editFlip) || null;
+      state.modal = 'edit-flip';
+      render();
+    })
+  );
+
+  // Challenge — mark sold
+  document.querySelectorAll('[data-sell-flip]').forEach(btn =>
+    btn.addEventListener('click', () => {
+      state.sellFlipId = btn.dataset.sellFlip;
+      state.modal = 'sell-flip';
+      render();
+    })
+  );
+
+  // Challenge — sell submit
+  document.getElementById('sell-submit-btn')?.addEventListener('click', async () => {
+    const soldFor = parseFloat(document.getElementById('sell-price').value);
+    if (isNaN(soldFor) || soldFor <= 0) { alert('Please enter a sale price.'); return; }
+    await updateFlip(state.sellFlipId, {
+      status:   'sold',
+      soldFor,
+      dateSold: document.getElementById('sell-date').value,
+      platform: document.getElementById('sell-platform').value,
+    });
+    state.modal = null; state.sellFlipId = null; render();
+  });
+
+  // Challenge — delete flip
+  document.querySelectorAll('[data-delete-flip]').forEach(btn =>
+    btn.addEventListener('click', async () => {
+      if (confirm('Delete this flip?')) await deleteFlip(btn.dataset.deleteFlip);
+    })
+  );
 
   // Submit sale
   document.getElementById('sale-submit-btn')?.addEventListener('click', async () => {
