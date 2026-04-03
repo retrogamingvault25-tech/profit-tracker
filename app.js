@@ -23,6 +23,7 @@ const state = {
   lots: [],
   sales: [],
   flips: [],
+  challengeExpenses: [],
   expenses: [],
   loaded: false,
   flipsLoaded: false,
@@ -57,6 +58,11 @@ function initFirebase() {
     render();
   });
 
+  onSnapshot(collection(db, 'challenge_expenses'), snap => {
+    state.challengeExpenses = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    render();
+  });
+
   onSnapshot(collection(db, 'profit_expenses'), snap => {
     state.expenses = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     render();
@@ -87,6 +93,15 @@ async function addSale(data) {
 
 async function deleteSale(id) {
   await deleteDoc(doc(db, 'profit_sales', id));
+}
+
+async function addChallengeExpense(data) {
+  const id = 'cexp_' + Date.now();
+  await setDoc(doc(db, 'challenge_expenses', id), { id, ...data, createdAt: new Date().toISOString() });
+}
+
+async function deleteChallengeExpense(id) {
+  await deleteDoc(doc(db, 'challenge_expenses', id));
 }
 
 async function addExpense(data) {
@@ -136,9 +151,10 @@ const CHALLENGE_START = 10;
 const CHALLENGE_GOAL  = 5000;
 
 function getChallengeStats() {
-  const totalSpent  = state.flips.reduce((s, f) => s + (f.boughtFor || 0), 0);
-  const totalSold   = state.flips.filter(f => f.status === 'sold').reduce((s, f) => s + (f.soldFor || 0), 0);
-  const currentCash = CHALLENGE_START - totalSpent + totalSold;
+  const totalSpent    = state.flips.reduce((s, f) => s + (f.boughtFor || 0), 0);
+  const totalSold     = state.flips.filter(f => f.status === 'sold').reduce((s, f) => s + (f.soldFor || 0), 0);
+  const totalChallengeExpenses = state.challengeExpenses.reduce((s, e) => s + (e.amount || 0), 0);
+  const currentCash   = CHALLENGE_START - totalSpent + totalSold - totalChallengeExpenses;
   const listedValue = state.flips
     .filter(f => f.status !== 'sold')
     .reduce((s, f) => s + (f.listedPrice || f.boughtFor || 0), 0);
@@ -807,10 +823,33 @@ function renderChallenge() {
               </tbody>
             </table></div>`}
       </div>
+      <!-- Challenge Expenses -->
+      <div class="section">
+        <div class="section-header">
+          <h3>Expenses (${state.challengeExpenses.length})</h3>
+          <button class="btn btn-outline btn-sm" data-open-modal="add-challenge-expense">+ Add Expense</button>
+        </div>
+        ${state.challengeExpenses.length === 0
+          ? `<div class="empty-state small"><p>No expenses yet — log shipping costs, supplies, etc.</p></div>`
+          : `<div class="table-wrap"><table class="table">
+              <thead><tr><th>Date</th><th>Description</th><th>Category</th><th class="money">Amount</th><th></th></tr></thead>
+              <tbody>
+                ${[...state.challengeExpenses].sort((a,b) => new Date(b.date)-new Date(a.date)).map(e => `
+                  <tr>
+                    <td class="text-dim">${fmtDate(e.date)}</td>
+                    <td>${escHtml(e.description)}</td>
+                    <td><span class="badge badge-cat">${escHtml(e.category||'Other')}</span></td>
+                    <td class="money negative">${fmt(e.amount)}</td>
+                    <td class="action-cell"><button class="btn-sm-action btn-sm-del" data-delete-cexp="${e.id}">Del</button></td>
+                  </tr>`).join('')}
+              </tbody>
+            </table></div>`}
+      </div>
     </div>
 
     ${state.modal === 'add-flip' || state.modal === 'edit-flip' ? renderFlipModal() : ''}
     ${state.modal === 'sell-flip' ? renderSellModal() : ''}
+    ${state.modal === 'add-challenge-expense' ? renderChallengeExpenseModal() : ''}
   `;
 }
 
@@ -908,6 +947,44 @@ function renderSellModal() {
         <div class="modal-footer">
           <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
           <button class="btn btn-primary" id="sell-submit-btn">Save Sale</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderChallengeExpenseModal() {
+  return `
+    <div class="modal-overlay active" id="modal-overlay">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>Add Challenge Expense</h3>
+          <button class="modal-close" id="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Description *</label>
+            <input type="text" id="cexp-desc" class="input" placeholder="e.g. Bubble mailers, shipping label">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Category</label>
+              <select id="cexp-category" class="select">
+                ${EXPENSE_CATS.map(c => `<option value="${c}">${c}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Date *</label>
+              <input type="date" id="cexp-date" class="input" value="${today()}">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Amount *</label>
+            <input type="number" id="cexp-amount" class="input" placeholder="0.00" min="0" step="0.01">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
+          <button class="btn btn-primary" id="cexp-submit-btn">Add Expense</button>
         </div>
       </div>
     </div>`;
@@ -1061,6 +1138,28 @@ function bindApp() {
   document.querySelectorAll('[data-delete-flip]').forEach(btn =>
     btn.addEventListener('click', async () => {
       if (confirm('Delete this flip?')) await deleteFlip(btn.dataset.deleteFlip);
+    })
+  );
+
+  // Challenge — add expense submit
+  document.getElementById('cexp-submit-btn')?.addEventListener('click', async () => {
+    const description = document.getElementById('cexp-desc').value.trim();
+    const amount = parseFloat(document.getElementById('cexp-amount').value);
+    const date = document.getElementById('cexp-date').value;
+    if (!description || isNaN(amount) || !date) { alert('Please fill in description, amount, and date.'); return; }
+    await addChallengeExpense({
+      description,
+      category: document.getElementById('cexp-category').value,
+      amount,
+      date,
+    });
+    state.modal = null; render();
+  });
+
+  // Challenge — delete expense
+  document.querySelectorAll('[data-delete-cexp]').forEach(btn =>
+    btn.addEventListener('click', async () => {
+      if (confirm('Delete this expense?')) await deleteChallengeExpense(btn.dataset.deleteCexp);
     })
   );
 
