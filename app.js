@@ -175,6 +175,7 @@ const PC_BASE  = 'https://www.pricecharting.com/api';
 
 async function pcGetPrices(queryStr) {
   const res  = await fetch(`${PC_BASE}/product?t=${PC_TOKEN}&${queryStr}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
   if (data.status !== 'success') throw new Error(data['error-message'] || 'Not found');
   return data;
@@ -707,7 +708,7 @@ function renderPriceLookupModal() {
                 </thead>
                 <tbody>
                   ${pc.bulkResults.map(r => r.error
-                    ? `<tr><td colspan="6"><span class="text-dim">${escHtml(r.item)}</span> <span class="pc-not-found">— not found</span></td></tr>`
+                    ? `<tr><td colspan="6"><span class="text-dim">${escHtml(r.item)}</span> <span class="pc-not-found">— ${escHtml(r.errorMsg || 'not found')}</span></td></tr>`
                     : `<tr>
                         <td><strong>${escHtml(r.name)}</strong></td>
                         <td class="text-dim">${escHtml(r.console)}</td>
@@ -1144,8 +1145,8 @@ function bindApp() {
           boxOnly: data['box-only-price'],
           manualOnly: data['manual-only-price'],
         });
-      } catch {
-        state.pc.bulkResults.push({ item: items[i], error: true });
+      } catch(e) {
+        state.pc.bulkResults.push({ item: items[i], error: true, errorMsg: e.message });
       }
       state.pc.progress = i + 1;
       render();
