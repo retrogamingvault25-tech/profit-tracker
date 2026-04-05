@@ -32,7 +32,7 @@ const state = {
   editFlip: null,
   filterCategory: 'all',
   sortLots: 'date-desc',
-  pc: { query: '', results: [], selected: null, prices: null, loading: false, error: null },
+  pc: { rawText: '', bulkResults: [], loading: false, progress: 0, total: 0, error: null },
 };
 
 // ── Firebase ─────────────────────────────────────────────────
@@ -173,21 +173,15 @@ function getChallengeStats() {
 const PC_TOKEN = '6e3679e5bb6e87791b896e108b70d69af12dc066';
 const PC_BASE  = 'https://www.pricecharting.com/api';
 
-async function pcSearch(query) {
-  const res  = await fetch(`${PC_BASE}/products?t=${PC_TOKEN}&q=${encodeURIComponent(query)}`);
+async function pcGetPrices(queryStr) {
+  const res  = await fetch(`${PC_BASE}/product?t=${PC_TOKEN}&${queryStr}`);
   const data = await res.json();
-  if (data.status !== 'success') throw new Error(data['error-message'] || 'Search failed');
-  return data.products || [];
-}
-
-async function pcGetPrices(id) {
-  const res  = await fetch(`${PC_BASE}/product?t=${PC_TOKEN}&id=${id}`);
-  const data = await res.json();
-  if (data.status !== 'success') throw new Error(data['error-message'] || 'Failed to get prices');
+  if (data.status !== 'success') throw new Error(data['error-message'] || 'Not found');
   return data;
 }
 
-const pcFmt = pennies => (pennies && pennies > 0) ? '$' + (pennies / 100).toFixed(2) : '—';
+const pcFmt  = pennies => (pennies && pennies > 0) ? '$' + (pennies / 100).toFixed(2) : '—';
+const pcSleep = ms => new Promise(r => setTimeout(r, ms));
 
 // ── Helpers ───────────────────────────────────────────────────
 const escHtml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -685,45 +679,7 @@ function renderModal() {
 
 function renderPriceLookupModal() {
   const pc = state.pc;
-  const priceRows = pc.prices ? `
-    <div class="pc-prices">
-      <div class="pc-item-name">${escHtml(pc.prices['product-name'])} <span class="text-dim">${escHtml(pc.prices['console-name'] || '')}</span></div>
-      <div class="pc-price-grid">
-        <div class="pc-price-card">
-          <div class="pc-price-label">Loose</div>
-          <div class="pc-price-val">${pcFmt(pc.prices['loose-price'])}</div>
-        </div>
-        <div class="pc-price-card">
-          <div class="pc-price-label">CIB</div>
-          <div class="pc-price-val">${pcFmt(pc.prices['cib-price'])}</div>
-        </div>
-        <div class="pc-price-card">
-          <div class="pc-price-label">New</div>
-          <div class="pc-price-val">${pcFmt(pc.prices['new-price'])}</div>
-        </div>
-        <div class="pc-price-card">
-          <div class="pc-price-label">Graded</div>
-          <div class="pc-price-val">${pcFmt(pc.prices['graded-price'])}</div>
-        </div>
-        <div class="pc-price-card">
-          <div class="pc-price-label">Box Only</div>
-          <div class="pc-price-val">${pcFmt(pc.prices['box-only-price'])}</div>
-        </div>
-        <div class="pc-price-card">
-          <div class="pc-price-label">Manual Only</div>
-          <div class="pc-price-val">${pcFmt(pc.prices['manual-only-price'])}</div>
-        </div>
-      </div>
-    </div>` : '';
-
-  const resultsList = !pc.prices && pc.results.length > 0 ? `
-    <div class="pc-results">
-      ${pc.results.map(r => `
-        <button class="pc-result-row" data-pc-id="${r.id}">
-          <span class="pc-result-name">${escHtml(r['product-name'])}</span>
-          <span class="pc-result-console">${escHtml(r['console-name'] || '')}</span>
-        </button>`).join('')}
-    </div>` : '';
+  const hasResults = pc.bulkResults.length > 0;
 
   return `
     <div class="modal-overlay active" id="modal-overlay">
@@ -733,15 +689,37 @@ function renderPriceLookupModal() {
           <button class="modal-close" id="modal-close">✕</button>
         </div>
         <div class="modal-body">
-          <div class="pc-search-row">
-            <input type="text" id="pc-query" class="input" placeholder="e.g. Super Mario World SNES, Charizard PSA 10" value="${escHtml(pc.query)}" ${pc.loading ? 'disabled' : ''}>
-            <button class="btn btn-primary" id="pc-search-btn" ${pc.loading ? 'disabled' : ''}>${pc.loading ? 'Searching…' : 'Search'}</button>
+          <p class="text-dim" style="margin-bottom:10px;font-size:13px;">Paste your item list below — one item per line. It will look up each one automatically.</p>
+          <textarea id="pc-paste" class="input pc-textarea" placeholder="Super Mario World SNES&#10;Pokemon Base Set Booster Pack&#10;Zelda Ocarina of Time N64" ${pc.loading ? 'disabled' : ''}>${escHtml(pc.rawText)}</textarea>
+          <div class="pc-action-row">
+            <button class="btn btn-primary" id="pc-lookup-btn" ${pc.loading ? 'disabled' : ''}>
+              ${pc.loading ? `Looking up ${pc.progress} / ${pc.total}…` : 'Look Up Prices'}
+            </button>
+            ${hasResults ? `<button class="btn btn-ghost" id="pc-clear-btn">Clear Results</button>` : ''}
           </div>
           ${pc.error ? `<div class="pc-error">${escHtml(pc.error)}</div>` : ''}
-          ${pc.results.length === 0 && !pc.prices && !pc.loading && pc.query ? `<div class="pc-empty">No results found — try a different search.</div>` : ''}
-          ${resultsList}
-          ${priceRows}
-          ${pc.prices ? `<button class="btn btn-ghost btn-sm mt-12" id="pc-back-btn">← Back to results</button>` : ''}
+          ${pc.loading ? `<div class="pc-progress-bar"><div class="pc-progress-fill" style="width:${pc.total ? (pc.progress/pc.total*100) : 0}%"></div></div>` : ''}
+          ${hasResults ? `
+            <div class="table-wrap mt-12">
+              <table class="table pc-table">
+                <thead>
+                  <tr><th>Item</th><th>Console</th><th>CIB</th><th>New</th><th>Box Only</th><th>Manual Only</th></tr>
+                </thead>
+                <tbody>
+                  ${pc.bulkResults.map(r => r.error
+                    ? `<tr><td colspan="6"><span class="text-dim">${escHtml(r.item)}</span> <span class="pc-not-found">— not found</span></td></tr>`
+                    : `<tr>
+                        <td><strong>${escHtml(r.name)}</strong></td>
+                        <td class="text-dim">${escHtml(r.console)}</td>
+                        <td class="money">${pcFmt(r.cib)}</td>
+                        <td class="money">${pcFmt(r.newP)}</td>
+                        <td class="money">${pcFmt(r.boxOnly)}</td>
+                        <td class="money">${pcFmt(r.manualOnly)}</td>
+                      </tr>`
+                  ).join('')}
+                </tbody>
+              </table>
+            </div>` : ''}
         </div>
       </div>
     </div>`;
@@ -1145,46 +1123,41 @@ function bindApp() {
   );
 
   // Close modal
-  const closeModal = () => { state.modal = null; state.editLot = null; state.pc = { query: '', results: [], selected: null, prices: null, loading: false, error: null }; render(); };
+  const closeModal = () => { state.modal = null; state.editLot = null; render(); };
 
-  // Price Lookup — search
-  document.getElementById('pc-search-btn')?.addEventListener('click', async () => {
-    const q = document.getElementById('pc-query').value.trim();
-    if (!q) return;
-    state.pc = { query: q, results: [], selected: null, prices: null, loading: true, error: null };
+  // Price Lookup — bulk lookup
+  document.getElementById('pc-lookup-btn')?.addEventListener('click', async () => {
+    const raw = document.getElementById('pc-paste').value;
+    const items = raw.split('\n').map(l => l.trim()).filter(Boolean);
+    if (!items.length) return;
+    state.pc = { rawText: raw, bulkResults: [], loading: true, progress: 0, total: items.length, error: null };
     render();
-    try {
-      const results = await pcSearch(q);
-      state.pc = { ...state.pc, results, loading: false };
-    } catch (e) {
-      state.pc = { ...state.pc, loading: false, error: e.message };
-    }
-    render();
-  });
-
-  document.getElementById('pc-query')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter') document.getElementById('pc-search-btn')?.click();
-  });
-
-  // Price Lookup — pick a result
-  document.querySelectorAll('[data-pc-id]').forEach(btn =>
-    btn.addEventListener('click', async () => {
-      const id = btn.dataset.pcId;
-      state.pc = { ...state.pc, loading: true, error: null };
-      render();
+    for (let i = 0; i < items.length; i++) {
       try {
-        const prices = await pcGetPrices(id);
-        state.pc = { ...state.pc, prices, loading: false };
-      } catch (e) {
-        state.pc = { ...state.pc, loading: false, error: e.message };
+        const data = await pcGetPrices(`q=${encodeURIComponent(items[i])}`);
+        state.pc.bulkResults.push({
+          item: items[i],
+          name: data['product-name'] || items[i],
+          console: data['console-name'] || '',
+          cib: data['cib-price'],
+          newP: data['new-price'],
+          boxOnly: data['box-only-price'],
+          manualOnly: data['manual-only-price'],
+        });
+      } catch {
+        state.pc.bulkResults.push({ item: items[i], error: true });
       }
+      state.pc.progress = i + 1;
       render();
-    })
-  );
+      if (i < items.length - 1) await pcSleep(1100);
+    }
+    state.pc.loading = false;
+    render();
+  });
 
-  // Price Lookup — back to results
-  document.getElementById('pc-back-btn')?.addEventListener('click', () => {
-    state.pc = { ...state.pc, prices: null };
+  // Price Lookup — clear
+  document.getElementById('pc-clear-btn')?.addEventListener('click', () => {
+    state.pc = { rawText: '', bulkResults: [], loading: false, progress: 0, total: 0, error: null };
     render();
   });
   document.getElementById('modal-close')?.addEventListener('click', closeModal);

@@ -513,21 +513,14 @@ body {
 
 /* ── Price Lookup ───────────────────────────────────────────── */
 .modal-wide { max-width: 620px; }
-.pc-search-row { display: flex; gap: 8px; }
-.pc-search-row .input { flex: 1; }
-.pc-results { margin-top: 12px; display: flex; flex-direction: column; gap: 4px; max-height: 280px; overflow-y: auto; }
-.pc-result-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; text-align: left; transition: background 0.15s; }
-.pc-result-row:hover { background: var(--border); }
-.pc-result-name { font-weight: 600; color: var(--text); }
-.pc-result-console { font-size: 12px; color: var(--sub); }
-.pc-prices { margin-top: 16px; }
-.pc-item-name { font-size: 1rem; font-weight: 700; margin-bottom: 12px; }
-.pc-price-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.pc-price-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; text-align: center; }
-.pc-price-label { font-size: 11px; color: var(--sub); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
-.pc-price-val { font-size: 1.1rem; font-weight: 700; color: var(--positive); }
+.pc-textarea { width: 100%; min-height: 130px; resize: vertical; font-family: inherit; line-height: 1.6; }
+.pc-action-row { display: flex; gap: 8px; margin-top: 10px; }
+.pc-progress-bar { height: 4px; background: var(--card); border-radius: 999px; margin-top: 10px; overflow: hidden; }
+.pc-progress-fill { height: 100%; background: var(--primary); border-radius: 999px; transition: width 0.3s; }
+.pc-table th, .pc-table td { white-space: nowrap; }
+.pc-table th:first-child, .pc-table td:first-child { white-space: normal; }
+.pc-not-found { color: var(--negative); font-size: 12px; }
 .pc-error { margin-top: 10px; color: var(--negative); font-size: 13px; }
-.pc-empty { margin-top: 10px; color: var(--sub); font-size: 13px; }
 .mt-12 { margin-top: 12px; }
 
 /* ── Expenses ───────────────────────────────────────────────── */
