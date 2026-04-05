@@ -174,9 +174,12 @@ const PC_TOKEN = '6e3679e5bb6e87791b896e108b70d69af12dc066';
 const PC_BASE  = 'https://www.pricecharting.com/api';
 
 async function pcGetPrices(queryStr) {
-  const res  = await fetch(`${PC_BASE}/product?t=${PC_TOKEN}&${queryStr}`);
+  const url  = `${PC_BASE}/product?t=${PC_TOKEN}&${queryStr}`;
+  console.log('[PC] fetching:', url);
+  const res  = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
+  console.log('[PC] response:', data);
   if (data.status !== 'success') throw new Error(data['error-message'] || 'Not found');
   return data;
 }
@@ -1146,6 +1149,7 @@ function bindApp() {
           manualOnly: data['manual-only-price'],
         });
       } catch(e) {
+        console.error('[PC] error for', items[i], e);
         state.pc.bulkResults.push({ item: items[i], error: true, errorMsg: e.message });
       }
       state.pc.progress = i + 1;
