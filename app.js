@@ -179,7 +179,7 @@ async function pcGetPrices(queryStr) {
   const res  = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
-  console.log('[PC] response:', data);
+  console.log('[PC] response:', JSON.stringify(data));
   if (data.status !== 'success') throw new Error(data['error-message'] || 'Not found');
   return data;
 }
