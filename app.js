@@ -181,7 +181,7 @@ function parseCSV(text) {
     const row = {};
     headers.forEach((h, i) => {
       let val = (cols[i] || '').trim().replace(/^"|"$/g, '');
-      if (val.startsWith('$')) val = Math.round(parseFloat(val.slice(1)) * 100);
+      if (h.endsWith('-price') && val.startsWith('$')) val = Math.round(parseFloat(val.slice(1)) * 100);
       row[h] = val;
     });
     return row;
@@ -192,8 +192,8 @@ function pcLocalSearch(query) {
   const q = query.toLowerCase().trim();
   const tokens = q.split(/\s+/);
   const scored = state.priceGuide.map(row => {
-    const name = (row['product-name'] || '').toLowerCase();
-    const cons = (row['console-name'] || '').toLowerCase();
+    const name = String(row['product-name'] || '').toLowerCase();
+    const cons = String(row['console-name'] || '').toLowerCase();
     const combined = `${name} ${cons}`;
     if (name === q || combined.trim() === q) return { row, score: 100 };
     const allMatch = tokens.every(t => combined.includes(t));
