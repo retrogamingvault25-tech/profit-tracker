@@ -702,12 +702,12 @@ function renderPriceLookupModal() {
             ${hasResults ? `<button class="btn btn-ghost" id="pc-clear-btn">Clear Results</button>` : ''}
           </div>
           ${pc.error ? `<div class="pc-error">${escHtml(pc.error)}</div>` : ''}
-          ${pc.loading ? `<div class="pc-progress-bar"><div class="pc-progress-fill" style="width:${pc.total ? (pc.progress/pc.total*100) : 0}%"></div></div>` : ''}
+          ${pc.loading ? `<div class="pc-progress-bar"><div class="pc-progress-fill" id="pc-bar-fill" style="width:${pc.total ? (pc.progress/pc.total*100) : 0}%"></div></div>` : ''}
           ${hasResults ? `
             <div class="table-wrap mt-12">
               <table class="table pc-table">
                 <thead>
-                  <tr><th>Item</th><th>Console</th><th>CIB</th><th>New</th><th>Box Only</th><th>Manual Only</th></tr>
+                  <tr><th>Item</th><th>Console</th><th>Loose</th><th>CIB</th><th>New</th><th>Box Only</th><th>Manual Only</th></tr>
                 </thead>
                 <tbody>
                   ${pc.bulkResults.map(r => r.error
@@ -715,6 +715,7 @@ function renderPriceLookupModal() {
                     : `<tr>
                         <td><strong>${escHtml(r.name)}</strong></td>
                         <td class="text-dim">${escHtml(r.console)}</td>
+                        <td class="money">${pcFmt(r.loose)}</td>
                         <td class="money">${pcFmt(r.cib)}</td>
                         <td class="money">${pcFmt(r.newP)}</td>
                         <td class="money">${pcFmt(r.boxOnly)}</td>
@@ -1136,13 +1137,18 @@ function bindApp() {
     if (!items.length) return;
     state.pc = { rawText: raw, bulkResults: [], loading: true, progress: 0, total: items.length, error: null };
     render();
+    // grab button ref once — avoid re-render during loop
+    const btn = document.getElementById('pc-lookup-btn');
+    const bar = document.getElementById('pc-bar-fill');
     for (let i = 0; i < items.length; i++) {
       try {
         const data = await pcGetPrices(`q=${encodeURIComponent(items[i])}`);
+        console.log('[PC] prices for', items[i], JSON.stringify(data));
         state.pc.bulkResults.push({
           item: items[i],
           name: data['product-name'] || items[i],
           console: data['console-name'] || '',
+          loose: data['loose-price'],
           cib: data['cib-price'],
           newP: data['new-price'],
           boxOnly: data['box-only-price'],
@@ -1153,7 +1159,8 @@ function bindApp() {
         state.pc.bulkResults.push({ item: items[i], error: true, errorMsg: e.message });
       }
       state.pc.progress = i + 1;
-      render();
+      if (btn) btn.textContent = `Looking up ${state.pc.progress} / ${state.pc.total}…`;
+      if (bar) bar.style.width = `${(state.pc.progress / state.pc.total) * 100}%`;
       if (i < items.length - 1) await pcSleep(1100);
     }
     state.pc.loading = false;
