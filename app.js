@@ -24,7 +24,6 @@ const state = {
   sales: [],
   flips: [],
   challengeExpenses: [],
-  expenses: [],
   loaded: false,
   flipsLoaded: false,
   modal: null,
@@ -32,8 +31,6 @@ const state = {
   editFlip: null,
   filterCategory: 'all',
   sortLots: 'date-desc',
-  pc: { rawText: '', bulkResults: [], loading: false, progress: 0, total: 0, error: null },
-  priceGuide: [],
 };
 
 // ── Firebase ─────────────────────────────────────────────────
@@ -65,10 +62,6 @@ function initFirebase() {
     render();
   });
 
-  onSnapshot(collection(db, 'profit_expenses'), snap => {
-    state.expenses = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    render();
-  });
 }
 
 // ── Storage ──────────────────────────────────────────────────
@@ -104,15 +97,6 @@ async function addChallengeExpense(data) {
 
 async function deleteChallengeExpense(id) {
   await deleteDoc(doc(db, 'challenge_expenses', id));
-}
-
-async function addExpense(data) {
-  const id = 'exp_' + Date.now();
-  await setDoc(doc(db, 'profit_expenses', id), { id, ...data, createdAt: new Date().toISOString() });
-}
-
-async function deleteExpense(id) {
-  await deleteDoc(doc(db, 'profit_expenses', id));
 }
 
 async function addFlip(data) {
@@ -170,39 +154,6 @@ function getChallengeStats() {
   return { currentCash, listedValue, totalPotential, progress, bestFlip, totalProfit, completedCount: completedFlips.length };
 }
 
-// ── PriceCharting Local CSV ───────────────────────────────────
-const pcFmt = pennies => (pennies && pennies > 0) ? '$' + (pennies / 100).toFixed(2) : '—';
-
-function parseCSV(text) {
-  const lines = text.trim().split('\n');
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-  return lines.slice(1).map(line => {
-    const cols = line.split(',');
-    const row = {};
-    headers.forEach((h, i) => {
-      let val = (cols[i] || '').trim().replace(/^"|"$/g, '');
-      if (h.endsWith('-price') && val.startsWith('$')) val = Math.round(parseFloat(val.slice(1)) * 100);
-      row[h] = val;
-    });
-    return row;
-  }).filter(r => r['product-name']);
-}
-
-function pcLocalSearch(query) {
-  const q = query.toLowerCase().trim();
-  const tokens = q.split(/\s+/);
-  const scored = state.priceGuide.map(row => {
-    const name = String(row['product-name'] || '').toLowerCase();
-    const cons = String(row['console-name'] || '').toLowerCase();
-    const combined = `${name} ${cons}`;
-    if (name === q || combined.trim() === q) return { row, score: 100 };
-    const allMatch = tokens.every(t => combined.includes(t));
-    if (allMatch) return { row, score: 50 + (1 / (name.length + 1)) };
-    const matchCount = tokens.filter(t => combined.includes(t)).length;
-    return { row, score: matchCount };
-  }).filter(x => x.score > 0).sort((a, b) => b.score - a.score);
-  return scored.slice(0, 5).map(x => x.row);
-}
 
 // ── Helpers ───────────────────────────────────────────────────
 const escHtml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -277,7 +228,6 @@ function renderApp() {
   else if (state.view === 'lots') content = renderLots();
   else if (state.view === 'lot-detail') content = renderLotDetail();
   else if (state.view === 'challenge') content = renderChallenge();
-  else if (state.view === 'expenses') content = renderExpenses();
 
   return `
     <div class="app">
@@ -291,8 +241,6 @@ function renderApp() {
             <button class="nav-btn ${state.view === 'dashboard' ? 'active' : ''}" data-nav="dashboard">Dashboard</button>
             <button class="nav-btn ${['lots','lot-detail'].includes(state.view) ? 'active' : ''}" data-nav="lots">Lots</button>
             <button class="nav-btn ${state.view === 'challenge' ? 'active' : ''}" data-nav="challenge">🏆 $10→$5K</button>
-            <button class="nav-btn ${state.view === 'expenses' ? 'active' : ''}" data-nav="expenses">💸 Expenses</button>
-            <button class="nav-btn ${state.modal === 'price-lookup' ? 'active' : ''}" data-open-modal="price-lookup">🔍 Price Lookup</button>
           </nav>
           <button class="btn btn-ghost" id="logout-btn">Logout</button>
         </div>
@@ -652,167 +600,11 @@ function renderModal() {
     </div>`;
   }
 
-  if (state.modal === 'add-expense') {
-    return `${overlay}
-      <div class="modal">
-        <div class="modal-header">
-          <h3>Add Expense</h3>
-          <button class="modal-close" id="modal-close">✕</button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label>Description *</label>
-            <input type="text" id="exp-desc" class="input" placeholder="e.g. Bubble mailers, tape, etc.">
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Category</label>
-              <select id="exp-category" class="select">
-                ${EXPENSE_CATS.map(c => `<option value="${c}">${c}</option>`).join('')}
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Date *</label>
-              <input type="date" id="exp-date" class="input" value="${today()}">
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Amount *</label>
-            <input type="number" id="exp-amount" class="input" placeholder="0.00" min="0" step="0.01">
-          </div>
-          <div class="form-group">
-            <label>Notes</label>
-            <input type="text" id="exp-notes" class="input" placeholder="Optional">
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
-          <button class="btn btn-primary" id="expense-submit-btn">Add Expense</button>
-        </div>
-      </div>
-    </div>`;
-  }
-
-  if (state.modal === 'price-lookup') return renderPriceLookupModal();
-
   return '';
-}
-
-function renderPriceLookupModal() {
-  const pc = state.pc;
-  const hasGuide = state.priceGuide.length > 0;
-  const hasResults = pc.bulkResults.length > 0;
-
-  return `
-    <div class="modal-overlay active" id="modal-overlay">
-      <div class="modal modal-wide">
-        <div class="modal-header">
-          <h3>🔍 Price Lookup</h3>
-          <button class="modal-close" id="modal-close">✕</button>
-        </div>
-        <div class="modal-body">
-
-          <div class="pc-step ${hasGuide ? 'pc-step--done' : 'pc-step--active'}">
-            <div class="pc-step-label">Step 1 — Load your price guide</div>
-            ${hasGuide
-              ? `<div style="display:flex;align-items:center;gap:10px;">
-                   <span class="pc-guide-badge">✓ ${state.priceGuide.length.toLocaleString()} items loaded</span>
-                   <label class="btn btn-ghost btn-sm" style="cursor:pointer">Reload CSV<input type="file" id="pc-csv-input" accept=".csv" style="display:none"></label>
-                 </div>`
-              : `<label class="btn btn-primary" style="cursor:pointer;display:inline-block;">📂 Select price-guide.csv from your Downloads folder
-                   <input type="file" id="pc-csv-input" accept=".csv" style="display:none">
-                 </label>`}
-          </div>
-
-          <div class="pc-step ${hasGuide ? 'pc-step--active' : 'pc-step--disabled'}">
-            <div class="pc-step-label">Step 2 — Paste items and search</div>
-            <textarea id="pc-paste" class="input pc-textarea" placeholder="Super Mario Bros NES&#10;Super Mario World SNES&#10;Zelda Ocarina of Time N64" ${hasGuide ? '' : 'disabled'}>${escHtml(pc.rawText)}</textarea>
-            <div class="pc-action-row">
-              <button class="btn btn-primary" id="pc-lookup-btn" ${hasGuide ? '' : 'disabled'}>Look Up Prices</button>
-              ${hasResults ? `<button class="btn btn-ghost" id="pc-clear-btn">Clear</button>` : ''}
-            </div>
-            ${pc.error ? `<div class="pc-error">${escHtml(pc.error)}</div>` : ''}
-          </div>
-
-          ${hasResults ? `
-            <div class="table-wrap mt-12">
-              <table class="table pc-table">
-                <thead><tr><th>Searched For</th><th>Matched To</th><th>Console</th><th>Loose Price</th></tr></thead>
-                <tbody>
-                  ${pc.bulkResults.map(r => r.error
-                    ? `<tr><td>${escHtml(r.item)}</td><td colspan="3"><span class="pc-not-found">not found — try including the console name</span></td></tr>`
-                    : `<tr>
-                        <td class="text-dim">${escHtml(r.item)}</td>
-                        <td><strong>${escHtml(r.name)}</strong></td>
-                        <td class="text-dim">${escHtml(r.console)}</td>
-                        <td class="money positive">${pcFmt(r.loose)}</td>
-                      </tr>`
-                  ).join('')}
-                </tbody>
-              </table>
-            </div>` : ''}
-        </div>
-      </div>
-    </div>`;
 }
 
 // ── Expenses View ─────────────────────────────────────────────
 const EXPENSE_CATS = ['Shipping Supplies', 'Packaging', 'Shipping Costs', 'Platform Fees', 'Tools & Equipment', 'Travel', 'Other'];
-
-function renderExpenses() {
-  const sorted = [...state.expenses].sort((a, b) => new Date(b.date) - new Date(a.date));
-  const totalSpent = state.expenses.reduce((s, e) => s + (e.amount || 0), 0);
-
-  const byCat = {};
-  state.expenses.forEach(e => {
-    const cat = e.category || 'Other';
-    byCat[cat] = (byCat[cat] || 0) + (e.amount || 0);
-  });
-  const topCats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
-
-  return `
-    <div class="expenses-view">
-      <div class="page-header">
-        <h2>💸 Expenses</h2>
-        <button class="btn btn-primary" data-open-modal="add-expense">+ Add Expense</button>
-      </div>
-
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-label">Total Spent</div>
-          <div class="stat-value negative">${fmt(totalSpent)}</div>
-          <div class="stat-sub">${state.expenses.length} expense${state.expenses.length !== 1 ? 's' : ''}</div>
-        </div>
-        ${topCats.slice(0, 3).map(([cat, amt]) => `
-          <div class="stat-card">
-            <div class="stat-label">${cat}</div>
-            <div class="stat-value">${fmt(amt)}</div>
-            <div class="stat-sub">${((amt / totalSpent) * 100).toFixed(0)}% of total</div>
-          </div>
-        `).join('')}
-      </div>
-
-      <div class="card mt-24">
-        <div class="card-header"><h3>All Expenses</h3></div>
-        ${sorted.length === 0
-          ? `<div class="empty-state"><div class="empty-icon">💸</div><p>No expenses logged yet.</p></div>`
-          : `<div class="table-wrap"><table class="table">
-              <thead><tr><th>Date</th><th>Description</th><th>Category</th><th class="money">Amount</th><th></th></tr></thead>
-              <tbody>
-                ${sorted.map(e => `
-                  <tr>
-                    <td class="date-cell">${fmtDate(e.date)}</td>
-                    <td>${escHtml(e.description)}</td>
-                    <td><span class="badge badge-cat">${escHtml(e.category || 'Other')}</span></td>
-                    <td class="money negative">${fmt(e.amount)}</td>
-                    <td class="action-cell"><button class="btn btn-danger btn-xs" data-delete-expense="${e.id}">Delete</button></td>
-                  </tr>`).join('')}
-              </tbody>
-            </table></div>`}
-      </div>
-    </div>
-  `;
-}
 
 // ── Event Binding ─────────────────────────────────────────────
 // ── Challenge View ────────────────────────────────────────────
@@ -1156,54 +948,6 @@ function bindApp() {
   // Close modal
   const closeModal = () => { state.modal = null; state.editLot = null; render(); };
 
-  // Price Lookup — load CSV
-  document.getElementById('pc-csv-input')?.addEventListener('change', e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const text = ev.target.result;
-      state.priceGuide = parseCSV(text);
-      try { sessionStorage.setItem('price_guide_csv', text); } catch {}
-      state.pc = { rawText: '', bulkResults: [], loading: false, progress: 0, total: 0, error: null };
-      render();
-    };
-    reader.readAsText(file);
-  });
-
-  // Price Lookup — run lookup (fully synchronous — local CSV)
-  document.getElementById('pc-lookup-btn')?.addEventListener('click', () => {
-    try {
-      const raw = document.getElementById('pc-paste').value;
-      const items = raw.split('\n').map(l => l.trim()).filter(Boolean);
-      if (!items.length) {
-        state.pc = { ...state.pc, error: 'Paste at least one item above before searching.' };
-        render(); return;
-      }
-      const results = items.map(item => {
-        const matches = pcLocalSearch(item);
-        if (!matches.length) return { item, error: true };
-        const best = matches[0];
-        return {
-          item,
-          name: best['product-name'] || item,
-          console: best['console-name'] || '',
-          loose: best['loose-price'],
-        };
-      });
-      state.pc = { rawText: raw, bulkResults: results, loading: false, progress: 0, total: 0, error: null };
-      render();
-    } catch(e) {
-      state.pc = { ...state.pc, error: 'Error: ' + e.message };
-      render();
-    }
-  });
-
-  // Price Lookup — clear
-  document.getElementById('pc-clear-btn')?.addEventListener('click', () => {
-    state.pc = { rawText: '', bulkResults: [], loading: false, progress: 0, total: 0, error: null };
-    render();
-  });
   document.getElementById('modal-close')?.addEventListener('click', closeModal);
   document.getElementById('modal-cancel')?.addEventListener('click', closeModal);
   document.getElementById('modal-overlay')?.addEventListener('click', e => { if (e.target.id === 'modal-overlay') closeModal(); });
@@ -1309,29 +1053,6 @@ function bindApp() {
     })
   );
 
-  // Submit expense
-  document.getElementById('expense-submit-btn')?.addEventListener('click', async () => {
-    const description = document.getElementById('exp-desc').value.trim();
-    const amount = parseFloat(document.getElementById('exp-amount').value);
-    const date = document.getElementById('exp-date').value;
-    if (!description || isNaN(amount) || !date) { alert('Please fill in description, amount, and date.'); return; }
-    await addExpense({
-      description,
-      category: document.getElementById('exp-category').value,
-      amount,
-      date,
-      notes: document.getElementById('exp-notes').value.trim(),
-    });
-    closeModal();
-  });
-
-  // Delete expense
-  document.querySelectorAll('[data-delete-expense]').forEach(btn =>
-    btn.addEventListener('click', async () => {
-      if (confirm('Delete this expense?')) await deleteExpense(btn.dataset.deleteExpense);
-    })
-  );
-
   // Submit sale
   document.getElementById('sale-submit-btn')?.addEventListener('click', async () => {
     const item = document.getElementById('sale-item').value.trim();
@@ -1353,8 +1074,6 @@ function bindApp() {
 
 // ── Init ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  const savedCSV = sessionStorage.getItem('price_guide_csv');
-  if (savedCSV) { try { state.priceGuide = parseCSV(savedCSV); } catch {} }
   if (state.loggedIn) initFirebase();
   render();
 });
