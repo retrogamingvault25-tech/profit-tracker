@@ -711,30 +711,36 @@ function renderPriceLookupModal() {
           <button class="modal-close" id="modal-close">✕</button>
         </div>
         <div class="modal-body">
-          <div class="pc-csv-row">
+
+          <div class="pc-step ${hasGuide ? 'pc-step--done' : 'pc-step--active'}">
+            <div class="pc-step-label">Step 1 — Load your price guide</div>
             ${hasGuide
-              ? `<span class="pc-guide-badge">✓ Price guide loaded — ${state.priceGuide.length.toLocaleString()} items</span>
-                 <label class="btn btn-ghost btn-sm" style="cursor:pointer">Change CSV<input type="file" id="pc-csv-input" accept=".csv" style="display:none"></label>`
-              : `<div class="pc-no-guide">
-                   <p>Load your PriceCharting price guide CSV to enable lookups.</p>
-                   <label class="btn btn-primary" style="cursor:pointer">Load Price Guide CSV
-                     <input type="file" id="pc-csv-input" accept=".csv" style="display:none">
-                   </label>
-                 </div>`}
+              ? `<div style="display:flex;align-items:center;gap:10px;">
+                   <span class="pc-guide-badge">✓ ${state.priceGuide.length.toLocaleString()} items loaded</span>
+                   <label class="btn btn-ghost btn-sm" style="cursor:pointer">Reload CSV<input type="file" id="pc-csv-input" accept=".csv" style="display:none"></label>
+                 </div>`
+              : `<label class="btn btn-primary" style="cursor:pointer;display:inline-block;">📂 Select price-guide.csv from your Downloads folder
+                   <input type="file" id="pc-csv-input" accept=".csv" style="display:none">
+                 </label>`}
           </div>
-          ${hasGuide ? `
-            <textarea id="pc-paste" class="input pc-textarea" placeholder="Super Mario Bros NES&#10;Super Mario World SNES&#10;Zelda Ocarina of Time N64">${escHtml(pc.rawText)}</textarea>
+
+          <div class="pc-step ${hasGuide ? 'pc-step--active' : 'pc-step--disabled'}">
+            <div class="pc-step-label">Step 2 — Paste items and search</div>
+            <textarea id="pc-paste" class="input pc-textarea" placeholder="Super Mario Bros NES&#10;Super Mario World SNES&#10;Zelda Ocarina of Time N64" ${hasGuide ? '' : 'disabled'}>${escHtml(pc.rawText)}</textarea>
             <div class="pc-action-row">
-              <button class="btn btn-primary" id="pc-lookup-btn">Look Up Prices</button>
+              <button class="btn btn-primary" id="pc-lookup-btn" ${hasGuide ? '' : 'disabled'}>Look Up Prices</button>
               ${hasResults ? `<button class="btn btn-ghost" id="pc-clear-btn">Clear</button>` : ''}
-            </div>` : ''}
+            </div>
+            ${pc.error ? `<div class="pc-error">${escHtml(pc.error)}</div>` : ''}
+          </div>
+
           ${hasResults ? `
             <div class="table-wrap mt-12">
               <table class="table pc-table">
                 <thead><tr><th>Searched For</th><th>Matched To</th><th>Console</th><th>Loose Price</th></tr></thead>
                 <tbody>
                   ${pc.bulkResults.map(r => r.error
-                    ? `<tr><td>${escHtml(r.item)}</td><td colspan="3"><span class="pc-not-found">not found</span></td></tr>`
+                    ? `<tr><td>${escHtml(r.item)}</td><td colspan="3"><span class="pc-not-found">not found — try including the console name</span></td></tr>`
                     : `<tr>
                         <td class="text-dim">${escHtml(r.item)}</td>
                         <td><strong>${escHtml(r.name)}</strong></td>
@@ -1165,22 +1171,30 @@ function bindApp() {
 
   // Price Lookup — run lookup (fully synchronous — local CSV)
   document.getElementById('pc-lookup-btn')?.addEventListener('click', () => {
-    const raw = document.getElementById('pc-paste').value;
-    const items = raw.split('\n').map(l => l.trim()).filter(Boolean);
-    if (!items.length) return;
-    const results = items.map(item => {
-      const matches = pcLocalSearch(item);
-      if (!matches.length) return { item, error: true, errorMsg: 'not found' };
-      const best = matches[0];
-      return {
-        item,
-        name: best['product-name'] || item,
-        console: best['console-name'] || '',
-        loose: best['loose-price'],
-      };
-    });
-    state.pc = { rawText: raw, bulkResults: results, loading: false, progress: 0, total: 0, error: null };
-    render();
+    try {
+      const raw = document.getElementById('pc-paste').value;
+      const items = raw.split('\n').map(l => l.trim()).filter(Boolean);
+      if (!items.length) {
+        state.pc = { ...state.pc, error: 'Paste at least one item above before searching.' };
+        render(); return;
+      }
+      const results = items.map(item => {
+        const matches = pcLocalSearch(item);
+        if (!matches.length) return { item, error: true };
+        const best = matches[0];
+        return {
+          item,
+          name: best['product-name'] || item,
+          console: best['console-name'] || '',
+          loose: best['loose-price'],
+        };
+      });
+      state.pc = { rawText: raw, bulkResults: results, loading: false, progress: 0, total: 0, error: null };
+      render();
+    } catch(e) {
+      state.pc = { ...state.pc, error: 'Error: ' + e.message };
+      render();
+    }
   });
 
   // Price Lookup — clear
