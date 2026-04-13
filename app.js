@@ -173,15 +173,26 @@ function getChallengeStats() {
 const PC_TOKEN = '6e3679e5bb6e87791b896e108b70d69af12dc066';
 const PC_BASE  = 'https://www.pricecharting.com/api';
 
-async function pcGetPrices(queryStr) {
-  const url  = `${PC_BASE}/product?t=${PC_TOKEN}&${queryStr}`;
-  console.log('[PC] fetching:', url);
-  const res  = await fetch(url);
+async function pcSearch(query) {
+  const res  = await fetch(`${PC_BASE}/products?t=${PC_TOKEN}&q=${encodeURIComponent(query)}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
-  console.log('[PC] response:', JSON.stringify(data));
+  if (data.status !== 'success') throw new Error(data['error-message'] || 'Not found');
+  return data.products || [];
+}
+
+async function pcGetPrices(id) {
+  const res  = await fetch(`${PC_BASE}/product?t=${PC_TOKEN}&id=${id}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
   if (data.status !== 'success') throw new Error(data['error-message'] || 'Not found');
   return data;
+}
+
+// prefer video game consoles over comics/cards/books
+const NON_GAME = /comic|book|magazine|trading card|pokemon card|baseball|basketball|football|funko/i;
+function pcBestMatch(results) {
+  return results.find(r => !NON_GAME.test(r['console-name'] || '')) || results[0];
 }
 
 const pcFmt  = pennies => (pennies && pennies > 0) ? '$' + (pennies / 100).toFixed(2) : '—';
@@ -1142,26 +1153,28 @@ function bindApp() {
     const bar = document.getElementById('pc-bar-fill');
     for (let i = 0; i < items.length; i++) {
       try {
-        const data = await pcGetPrices(`q=${encodeURIComponent(items[i])}`);
-        console.log('[PC] prices for', items[i], JSON.stringify(data));
+        const matches = await pcSearch(items[i]);
+        if (!matches.length) throw new Error('No results found');
+        await pcSleep(1100);
+        const best  = pcBestMatch(matches);
+        const prices = await pcGetPrices(best.id);
         state.pc.bulkResults.push({
           item: items[i],
-          name: data['product-name'] || items[i],
-          console: data['console-name'] || '',
-          loose: data['loose-price'],
-          cib: data['cib-price'],
-          newP: data['new-price'],
-          boxOnly: data['box-only-price'],
-          manualOnly: data['manual-only-price'],
+          name: prices['product-name'] || best['product-name'],
+          console: prices['console-name'] || best['console-name'] || '',
+          loose: prices['loose-price'],
+          cib: prices['cib-price'],
+          newP: prices['new-price'],
+          boxOnly: prices['box-only-price'],
+          manualOnly: prices['manual-only-price'],
         });
       } catch(e) {
-        console.error('[PC] error for', items[i], e);
         state.pc.bulkResults.push({ item: items[i], error: true, errorMsg: e.message });
       }
       state.pc.progress = i + 1;
       if (btn) btn.textContent = `Looking up ${state.pc.progress} / ${state.pc.total}…`;
       if (bar) bar.style.width = `${(state.pc.progress / state.pc.total) * 100}%`;
-      if (i < items.length - 1) await pcSleep(1100);
+      if (i < items.length - 1) await pcSleep(1200);
     }
     state.pc.loading = false;
     render();
