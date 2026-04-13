@@ -33,6 +33,7 @@ const state = {
   filterCategory: 'all',
   sortLots: 'date-desc',
   pc: { rawText: '', bulkResults: [], loading: false, progress: 0, total: 0, error: null },
+  priceGuide: [],
 };
 
 // ── Firebase ─────────────────────────────────────────────────
@@ -169,34 +170,39 @@ function getChallengeStats() {
   return { currentCash, listedValue, totalPotential, progress, bestFlip, totalProfit, completedCount: completedFlips.length };
 }
 
-// ── PriceCharting API ─────────────────────────────────────────
-const PC_TOKEN = '6e3679e5bb6e87791b896e108b70d69af12dc066';
-const PC_BASE  = 'https://www.pricecharting.com/api';
+// ── PriceCharting Local CSV ───────────────────────────────────
+const pcFmt = pennies => (pennies && pennies > 0) ? '$' + (pennies / 100).toFixed(2) : '—';
 
-async function pcSearch(query) {
-  const res  = await fetch(`${PC_BASE}/products?t=${PC_TOKEN}&q=${encodeURIComponent(query)}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json();
-  if (data.status !== 'success') throw new Error(data['error-message'] || 'Not found');
-  return data.products || [];
+function parseCSV(text) {
+  const lines = text.trim().split('\n');
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+  return lines.slice(1).map(line => {
+    const cols = line.split(',');
+    const row = {};
+    headers.forEach((h, i) => {
+      let val = (cols[i] || '').trim().replace(/^"|"$/g, '');
+      if (val.startsWith('$')) val = Math.round(parseFloat(val.slice(1)) * 100);
+      row[h] = val;
+    });
+    return row;
+  }).filter(r => r['product-name']);
 }
 
-async function pcGetPrices(id) {
-  const res  = await fetch(`${PC_BASE}/product?t=${PC_TOKEN}&id=${id}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json();
-  if (data.status !== 'success') throw new Error(data['error-message'] || 'Not found');
-  return data;
+function pcLocalSearch(query) {
+  const q = query.toLowerCase().trim();
+  const tokens = q.split(/\s+/);
+  const scored = state.priceGuide.map(row => {
+    const name = (row['product-name'] || '').toLowerCase();
+    const cons = (row['console-name'] || '').toLowerCase();
+    const combined = `${name} ${cons}`;
+    if (name === q || combined.trim() === q) return { row, score: 100 };
+    const allMatch = tokens.every(t => combined.includes(t));
+    if (allMatch) return { row, score: 50 + (1 / (name.length + 1)) };
+    const matchCount = tokens.filter(t => combined.includes(t)).length;
+    return { row, score: matchCount };
+  }).filter(x => x.score > 0).sort((a, b) => b.score - a.score);
+  return scored.slice(0, 5).map(x => x.row);
 }
-
-// prefer video game consoles over comics/cards/books
-const NON_GAME = /comic|book|magazine|trading card|pokemon card|baseball|basketball|football|funko/i;
-function pcBestMatch(results) {
-  return results.find(r => !NON_GAME.test(r['console-name'] || '')) || results[0];
-}
-
-const pcFmt  = pennies => (pennies && pennies > 0) ? '$' + (pennies / 100).toFixed(2) : '—';
-const pcSleep = ms => new Promise(r => setTimeout(r, ms));
 
 // ── Helpers ───────────────────────────────────────────────────
 const escHtml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -694,6 +700,7 @@ function renderModal() {
 
 function renderPriceLookupModal() {
   const pc = state.pc;
+  const hasGuide = state.priceGuide.length > 0;
   const hasResults = pc.bulkResults.length > 0;
 
   return `
@@ -704,33 +711,35 @@ function renderPriceLookupModal() {
           <button class="modal-close" id="modal-close">✕</button>
         </div>
         <div class="modal-body">
-          <p class="text-dim" style="margin-bottom:10px;font-size:13px;">Paste your item list below — one item per line. It will look up each one automatically.</p>
-          <textarea id="pc-paste" class="input pc-textarea" placeholder="Super Mario World SNES&#10;Pokemon Base Set Booster Pack&#10;Zelda Ocarina of Time N64" ${pc.loading ? 'disabled' : ''}>${escHtml(pc.rawText)}</textarea>
-          <div class="pc-action-row">
-            <button class="btn btn-primary" id="pc-lookup-btn" ${pc.loading ? 'disabled' : ''}>
-              ${pc.loading ? `Looking up ${pc.progress} / ${pc.total}…` : 'Look Up Prices'}
-            </button>
-            ${hasResults ? `<button class="btn btn-ghost" id="pc-clear-btn">Clear Results</button>` : ''}
+          <div class="pc-csv-row">
+            ${hasGuide
+              ? `<span class="pc-guide-badge">✓ Price guide loaded — ${state.priceGuide.length.toLocaleString()} items</span>
+                 <label class="btn btn-ghost btn-sm" style="cursor:pointer">Change CSV<input type="file" id="pc-csv-input" accept=".csv" style="display:none"></label>`
+              : `<div class="pc-no-guide">
+                   <p>Load your PriceCharting price guide CSV to enable lookups.</p>
+                   <label class="btn btn-primary" style="cursor:pointer">Load Price Guide CSV
+                     <input type="file" id="pc-csv-input" accept=".csv" style="display:none">
+                   </label>
+                 </div>`}
           </div>
-          ${pc.error ? `<div class="pc-error">${escHtml(pc.error)}</div>` : ''}
-          ${pc.loading ? `<div class="pc-progress-bar"><div class="pc-progress-fill" id="pc-bar-fill" style="width:${pc.total ? (pc.progress/pc.total*100) : 0}%"></div></div>` : ''}
+          ${hasGuide ? `
+            <textarea id="pc-paste" class="input pc-textarea" placeholder="Super Mario Bros NES&#10;Super Mario World SNES&#10;Zelda Ocarina of Time N64">${escHtml(pc.rawText)}</textarea>
+            <div class="pc-action-row">
+              <button class="btn btn-primary" id="pc-lookup-btn">Look Up Prices</button>
+              ${hasResults ? `<button class="btn btn-ghost" id="pc-clear-btn">Clear</button>` : ''}
+            </div>` : ''}
           ${hasResults ? `
             <div class="table-wrap mt-12">
               <table class="table pc-table">
-                <thead>
-                  <tr><th>Item</th><th>Console</th><th>Loose</th><th>CIB</th><th>New</th><th>Box Only</th><th>Manual Only</th></tr>
-                </thead>
+                <thead><tr><th>Searched For</th><th>Matched To</th><th>Console</th><th>Loose Price</th></tr></thead>
                 <tbody>
                   ${pc.bulkResults.map(r => r.error
-                    ? `<tr><td colspan="6"><span class="text-dim">${escHtml(r.item)}</span> <span class="pc-not-found">— ${escHtml(r.errorMsg || 'not found')}</span></td></tr>`
+                    ? `<tr><td>${escHtml(r.item)}</td><td colspan="3"><span class="pc-not-found">not found</span></td></tr>`
                     : `<tr>
+                        <td class="text-dim">${escHtml(r.item)}</td>
                         <td><strong>${escHtml(r.name)}</strong></td>
                         <td class="text-dim">${escHtml(r.console)}</td>
-                        <td class="money">${pcFmt(r.loose)}</td>
-                        <td class="money">${pcFmt(r.cib)}</td>
-                        <td class="money">${pcFmt(r.newP)}</td>
-                        <td class="money">${pcFmt(r.boxOnly)}</td>
-                        <td class="money">${pcFmt(r.manualOnly)}</td>
+                        <td class="money positive">${pcFmt(r.loose)}</td>
                       </tr>`
                   ).join('')}
                 </tbody>
@@ -1141,42 +1150,36 @@ function bindApp() {
   // Close modal
   const closeModal = () => { state.modal = null; state.editLot = null; render(); };
 
-  // Price Lookup — bulk lookup
-  document.getElementById('pc-lookup-btn')?.addEventListener('click', async () => {
+  // Price Lookup — load CSV
+  document.getElementById('pc-csv-input')?.addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      state.priceGuide = parseCSV(ev.target.result);
+      state.pc = { rawText: '', bulkResults: [], loading: false, progress: 0, total: 0, error: null };
+      render();
+    };
+    reader.readAsText(file);
+  });
+
+  // Price Lookup — run lookup (fully synchronous — local CSV)
+  document.getElementById('pc-lookup-btn')?.addEventListener('click', () => {
     const raw = document.getElementById('pc-paste').value;
     const items = raw.split('\n').map(l => l.trim()).filter(Boolean);
     if (!items.length) return;
-    state.pc = { rawText: raw, bulkResults: [], loading: true, progress: 0, total: items.length, error: null };
-    render();
-    // grab button ref once — avoid re-render during loop
-    const btn = document.getElementById('pc-lookup-btn');
-    const bar = document.getElementById('pc-bar-fill');
-    for (let i = 0; i < items.length; i++) {
-      try {
-        const matches = await pcSearch(items[i]);
-        if (!matches.length) throw new Error('No results found');
-        await pcSleep(1100);
-        const best  = pcBestMatch(matches);
-        const prices = await pcGetPrices(best.id);
-        state.pc.bulkResults.push({
-          item: items[i],
-          name: prices['product-name'] || best['product-name'],
-          console: prices['console-name'] || best['console-name'] || '',
-          loose: prices['loose-price'],
-          cib: prices['cib-price'],
-          newP: prices['new-price'],
-          boxOnly: prices['box-only-price'],
-          manualOnly: prices['manual-only-price'],
-        });
-      } catch(e) {
-        state.pc.bulkResults.push({ item: items[i], error: true, errorMsg: e.message });
-      }
-      state.pc.progress = i + 1;
-      if (btn) btn.textContent = `Looking up ${state.pc.progress} / ${state.pc.total}…`;
-      if (bar) bar.style.width = `${(state.pc.progress / state.pc.total) * 100}%`;
-      if (i < items.length - 1) await pcSleep(1200);
-    }
-    state.pc.loading = false;
+    const results = items.map(item => {
+      const matches = pcLocalSearch(item);
+      if (!matches.length) return { item, error: true, errorMsg: 'not found' };
+      const best = matches[0];
+      return {
+        item,
+        name: best['product-name'] || item,
+        console: best['console-name'] || '',
+        loose: best['loose-price'],
+      };
+    });
+    state.pc = { rawText: raw, bulkResults: results, loading: false, progress: 0, total: 0, error: null };
     render();
   });
 

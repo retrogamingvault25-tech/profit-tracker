@@ -513,14 +513,15 @@ body {
 
 /* ── Price Lookup ───────────────────────────────────────────── */
 .modal-wide { max-width: 620px; }
-.pc-textarea { width: 100%; min-height: 130px; resize: vertical; font-family: inherit; line-height: 1.6; }
-.pc-action-row { display: flex; gap: 8px; margin-top: 10px; }
-.pc-progress-bar { height: 4px; background: var(--card); border-radius: 999px; margin-top: 10px; overflow: hidden; }
-.pc-progress-fill { height: 100%; background: var(--primary); border-radius: 999px; transition: width 0.3s; }
+.pc-csv-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.pc-guide-badge { font-size: 13px; color: var(--positive); font-weight: 600; flex: 1; }
+.pc-no-guide { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); width: 100%; }
+.pc-no-guide p { font-size: 13px; color: var(--sub); margin: 0; }
+.pc-textarea { width: 100%; min-height: 110px; resize: vertical; font-family: inherit; line-height: 1.6; margin-bottom: 10px; }
+.pc-action-row { display: flex; gap: 8px; margin-bottom: 4px; }
 .pc-table th, .pc-table td { white-space: nowrap; }
-.pc-table th:first-child, .pc-table td:first-child { white-space: normal; }
+.pc-table th:first-child, .pc-table td:first-child, .pc-table th:nth-child(2), .pc-table td:nth-child(2) { white-space: normal; }
 .pc-not-found { color: var(--negative); font-size: 12px; }
-.pc-error { margin-top: 10px; color: var(--negative); font-size: 13px; }
 .mt-12 { margin-top: 12px; }
 
 /* ── Expenses ───────────────────────────────────────────────── */
