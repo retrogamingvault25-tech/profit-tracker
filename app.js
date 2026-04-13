@@ -1162,7 +1162,9 @@ function bindApp() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = ev => {
-      state.priceGuide = parseCSV(ev.target.result);
+      const text = ev.target.result;
+      state.priceGuide = parseCSV(text);
+      try { sessionStorage.setItem('price_guide_csv', text); } catch {}
       state.pc = { rawText: '', bulkResults: [], loading: false, progress: 0, total: 0, error: null };
       render();
     };
@@ -1351,6 +1353,8 @@ function bindApp() {
 
 // ── Init ──────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  const savedCSV = sessionStorage.getItem('price_guide_csv');
+  if (savedCSV) { try { state.priceGuide = parseCSV(savedCSV); } catch {} }
   if (state.loggedIn) initFirebase();
   render();
 });
