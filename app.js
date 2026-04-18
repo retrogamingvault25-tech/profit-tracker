@@ -851,14 +851,17 @@ function renderChallenge() {
              <button class="btn btn-outline btn-sm" id="migrate-flips-btn" style="margin-top:10px">Import old flip data</button>
            </div></div>`
         : (() => {
-            const activeLots = lots.filter(l => state.challengeSales.filter(s => s.lotId === l.id).length === 0);
-            const sellingLots = lots.filter(l => state.challengeSales.filter(s => s.lotId === l.id).length > 0);
-            const lotCard = lot => {
+            const openLots   = lots.filter(l => !l.closed);
+            const closedLots = lots.filter(l => l.closed);
+            const activeLots  = openLots.filter(l => state.challengeSales.filter(s => s.lotId === l.id).length === 0);
+            const sellingLots = openLots.filter(l => state.challengeSales.filter(s => s.lotId === l.id).length > 0);
+
+            const lotCard = (lot, isClosed) => {
               const ls = getChallengeLotStats(lot.id);
               const lpc = ls.profit >= 0 ? 'positive' : 'negative';
               const pctRoi = ls.cost > 0 ? ((ls.profit / ls.cost) * 100).toFixed(0) + '%' : '';
               return `
-                <div class="lot-card" data-goto-challenge-lot="${lot.id}">
+                <div class="lot-card${isClosed ? ' lot-card--closed' : ''}" data-goto-challenge-lot="${lot.id}">
                   <div class="lot-card-header">
                     <span class="badge badge-${lot.category}">${catIcon(lot.category)} ${capitalize(lot.category)}</span>
                     <span class="lot-date">${fmtDate(lot.date)}</span>
@@ -875,16 +878,22 @@ function renderChallenge() {
                   </div>
                 </div>`;
             };
+
             return `
               ${activeLots.length > 0 ? `
                 <div class="section">
                   <h3>Active — In Hand (${activeLots.length})</h3>
-                  <div class="lots-grid">${activeLots.map(lotCard).join('')}</div>
+                  <div class="lots-grid">${activeLots.map(l => lotCard(l, false)).join('')}</div>
                 </div>` : ''}
               ${sellingLots.length > 0 ? `
                 <div class="section">
                   <h3>Has Sales (${sellingLots.length})</h3>
-                  <div class="lots-grid">${sellingLots.map(lotCard).join('')}</div>
+                  <div class="lots-grid">${sellingLots.map(l => lotCard(l, false)).join('')}</div>
+                </div>` : ''}
+              ${closedLots.length > 0 ? `
+                <div class="section">
+                  <h3>Closed (${closedLots.length})</h3>
+                  <div class="lots-grid">${closedLots.map(l => lotCard(l, true)).join('')}</div>
                 </div>` : ''}`;
           })()
       }
@@ -932,6 +941,9 @@ function renderChallengeLotDetail() {
         </div>
         <div class="header-actions">
           <button class="btn btn-ghost" id="edit-challenge-lot-btn">Edit</button>
+          ${lot.closed
+            ? `<button class="btn btn-outline" id="reopen-challenge-lot-btn">Reopen</button>`
+            : `<button class="btn btn-success" id="close-challenge-lot-btn">✓ Close Lot</button>`}
           <button class="btn btn-danger" id="delete-challenge-lot-btn">Delete Lot</button>
         </div>
       </div>
@@ -1102,6 +1114,18 @@ function bindApp() {
     state.view = 'challenge';
     state.selectedChallengeLotId = null;
     render();
+  });
+
+  // Challenge — close lot
+  document.getElementById('close-challenge-lot-btn')?.addEventListener('click', async () => {
+    const lot = state.challengeLots.find(l => l.id === state.selectedChallengeLotId);
+    if (lot) await updateChallengeLot(lot.id, { ...lot, closed: true });
+  });
+
+  // Challenge — reopen lot
+  document.getElementById('reopen-challenge-lot-btn')?.addEventListener('click', async () => {
+    const lot = state.challengeLots.find(l => l.id === state.selectedChallengeLotId);
+    if (lot) await updateChallengeLot(lot.id, { ...lot, closed: false });
   });
 
   // Challenge — edit lot button
