@@ -845,38 +845,49 @@ function renderChallenge() {
       </div>
 
       <!-- Lots list -->
-      <div class="section">
-        <h3>Lots (${lots.length})</h3>
-        ${lots.length === 0
-          ? `<div class="empty-state small">
-               <p>No lots yet — add your first purchase to get started!</p>
-               <button class="btn btn-outline btn-sm" id="migrate-flips-btn" style="margin-top:10px">Import old flip data</button>
-             </div>`
-          : `<div class="lots-grid">
-              ${lots.map(lot => {
-                const ls = getChallengeLotStats(lot.id);
-                const lpc = ls.profit >= 0 ? 'positive' : 'negative';
-                const pctRoi = ls.cost > 0 ? ((ls.profit / ls.cost) * 100).toFixed(0) + '%' : '';
-                return `
-                  <div class="lot-card" data-goto-challenge-lot="${lot.id}">
-                    <div class="lot-card-header">
-                      <span class="badge badge-${lot.category}">${catIcon(lot.category)} ${capitalize(lot.category)}</span>
-                      <span class="lot-date">${fmtDate(lot.date)}</span>
+      ${lots.length === 0
+        ? `<div class="section"><div class="empty-state small">
+             <p>No lots yet — add your first purchase to get started!</p>
+             <button class="btn btn-outline btn-sm" id="migrate-flips-btn" style="margin-top:10px">Import old flip data</button>
+           </div></div>`
+        : (() => {
+            const activeLots = lots.filter(l => state.challengeSales.filter(s => s.lotId === l.id).length === 0);
+            const sellingLots = lots.filter(l => state.challengeSales.filter(s => s.lotId === l.id).length > 0);
+            const lotCard = lot => {
+              const ls = getChallengeLotStats(lot.id);
+              const lpc = ls.profit >= 0 ? 'positive' : 'negative';
+              const pctRoi = ls.cost > 0 ? ((ls.profit / ls.cost) * 100).toFixed(0) + '%' : '';
+              return `
+                <div class="lot-card" data-goto-challenge-lot="${lot.id}">
+                  <div class="lot-card-header">
+                    <span class="badge badge-${lot.category}">${catIcon(lot.category)} ${capitalize(lot.category)}</span>
+                    <span class="lot-date">${fmtDate(lot.date)}</span>
+                  </div>
+                  <h3 class="lot-name">${escHtml(lot.name)}</h3>
+                  ${lot.notes ? `<p class="lot-notes">${escHtml(lot.notes)}</p>` : ''}
+                  <div class="lot-financials">
+                    <div class="lot-fin-row"><span>Cost</span><span>${fmt(lot.cost)}</span></div>
+                    <div class="lot-fin-row"><span>Net Revenue (${ls.salesCount} sales)</span><span class="positive">${fmt(ls.totalNet)}</span></div>
+                    <div class="lot-fin-row lot-fin-total">
+                      <span>Profit</span>
+                      <span class="${lpc}">${fmtSigned(ls.profit)}${pctRoi ? ` <span class="pct-tag">${pctRoi}</span>` : ''}</span>
                     </div>
-                    <h3 class="lot-name">${escHtml(lot.name)}</h3>
-                    ${lot.notes ? `<p class="lot-notes">${escHtml(lot.notes)}</p>` : ''}
-                    <div class="lot-financials">
-                      <div class="lot-fin-row"><span>Cost</span><span>${fmt(lot.cost)}</span></div>
-                      <div class="lot-fin-row"><span>Net Revenue (${ls.salesCount} sales)</span><span class="positive">${fmt(ls.totalNet)}</span></div>
-                      <div class="lot-fin-row lot-fin-total">
-                        <span>Profit</span>
-                        <span class="${lpc}">${fmtSigned(ls.profit)}${pctRoi ? ` <span class="pct-tag">${pctRoi}</span>` : ''}</span>
-                      </div>
-                    </div>
-                  </div>`;
-              }).join('')}
-            </div>`}
-      </div>
+                  </div>
+                </div>`;
+            };
+            return `
+              ${activeLots.length > 0 ? `
+                <div class="section">
+                  <h3>Active — In Hand (${activeLots.length})</h3>
+                  <div class="lots-grid">${activeLots.map(lotCard).join('')}</div>
+                </div>` : ''}
+              ${sellingLots.length > 0 ? `
+                <div class="section">
+                  <h3>Has Sales (${sellingLots.length})</h3>
+                  <div class="lots-grid">${sellingLots.map(lotCard).join('')}</div>
+                </div>` : ''}`;
+          })()
+      }
 
       <!-- Challenge Expenses -->
       <div class="section">
