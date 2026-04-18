@@ -1,5 +1,5 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 // ── Firebase Config ──────────────────────────────────────────
 const firebaseConfig = {
@@ -102,6 +102,40 @@ async function addChallengeExpense(data) {
 
 async function deleteChallengeExpense(id) {
   await deleteDoc(doc(db, 'challenge_expenses', id));
+}
+
+async function migrateFlipsToLots() {
+  const snap = await getDocs(collection(db, 'challenge_flips'));
+  if (snap.empty) { alert('No old flip data found to import.'); return; }
+  const batch = writeBatch(db);
+  snap.docs.forEach(d => {
+    const f = d.data();
+    const lotId = 'clot_' + d.id;
+    batch.set(doc(db, 'challenge_lots', lotId), {
+      id: lotId,
+      name: f.item || 'Unnamed',
+      category: f.category || 'other',
+      cost: f.boughtFor || 0,
+      date: f.date || new Date().toISOString().split('T')[0],
+      notes: f.notes || '',
+      createdAt: f.createdAt || new Date().toISOString(),
+    });
+    if (f.status === 'sold' && f.soldFor) {
+      const saleId = 'csale_' + d.id;
+      batch.set(doc(db, 'challenge_sales', saleId), {
+        id: saleId,
+        lotId,
+        item: f.item || 'Unnamed',
+        price: f.soldFor,
+        fees: 0,
+        date: f.dateSold || f.date || new Date().toISOString().split('T')[0],
+        platform: f.platform || '',
+        createdAt: f.createdAt || new Date().toISOString(),
+      });
+    }
+  });
+  await batch.commit();
+  alert(`Imported ${snap.size} flips successfully!`);
 }
 
 async function addChallengeLot(data) {
@@ -814,7 +848,10 @@ function renderChallenge() {
       <div class="section">
         <h3>Lots (${lots.length})</h3>
         ${lots.length === 0
-          ? `<div class="empty-state small"><p>No lots yet — add your first purchase to get started!</p></div>`
+          ? `<div class="empty-state small">
+               <p>No lots yet — add your first purchase to get started!</p>
+               <button class="btn btn-outline btn-sm" id="migrate-flips-btn" style="margin-top:10px">Import old flip data</button>
+             </div>`
           : `<div class="lots-grid">
               ${lots.map(lot => {
                 const ls = getChallengeLotStats(lot.id);
@@ -1033,6 +1070,11 @@ function bindApp() {
       await addLot(data);
     }
     closeModal();
+  });
+
+  // Challenge — migrate old flips
+  document.getElementById('migrate-flips-btn')?.addEventListener('click', async () => {
+    if (confirm('Import all old flip data into the new lots format?')) await migrateFlipsToLots();
   });
 
   // Challenge — navigate into lot detail
