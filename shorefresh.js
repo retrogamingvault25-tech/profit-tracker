@@ -145,6 +145,7 @@ function bindLogin() {
       sessionStorage.setItem('sf_auth', 'true');
       state.loggedIn = true;
       initFirebase();
+      alert("WHAT'S UP BIG DOG");
       render();
     } else {
       err.classList.remove('hidden');
