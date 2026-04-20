@@ -1,0 +1,50 @@
+/* ── Shore Fresh overrides & additions ───────────────────────── */
+
+/* Warn (yellow) color — used for middle-range percentages */
+.warn { color: #f59e0b; }
+
+/* modal-wide was removed from style.css when price lookup was deleted */
+.modal-wide { max-width: 640px; }
+
+/* card + card-header used in breakdown table */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.card-header { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+.card-header h3 { margin: 0; font-size: 15px; }
+.mt-24 { margin-top: 24px; }
+
+/* Vendor grid in modal — 2 columns */
+.sf-vendors-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.sf-vendors-label {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sub);
+  margin-bottom: 4px;
+}
+
+/* Total row in COG breakdown table */
+.sf-total-row td {
+  border-top: 2px solid var(--border);
+  padding-top: 10px;
+}
+
+/* text-dim utility */
+.text-dim { color: var(--sub); }
+
+/* Section heading spacing */
+.section h3 { margin-bottom: 12px; }
+
+/* Responsive: single column vendors on small screens */
+@media (max-width: 480px) {
+  .sf-vendors-grid { grid-template-columns: 1fr; }
+}
