@@ -41,8 +41,31 @@ let db;
 function initFirebase() {
   const app = initializeApp(firebaseConfig, 'shorefresh');
   db = getFirestore(app);
-  onSnapshot(collection(db, 'sf_weeks'), snap => {
+  onSnapshot(collection(db, 'sf_weeks'), async snap => {
     state.weeks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Seed first week from the 4/13–4/19 spreadsheet if nothing exists yet
+    if (state.weeks.length === 0 && !state._seeded) {
+      state._seeded = true;
+      await addWeek({
+        weekStart: '2026-04-13',
+        weekLabel: '4/13 \u2013 4/19',
+        sales: 33428,
+        labor: 0,
+        vendors: {
+          samuels: 2463.90,
+          pg:      2665.85,
+          bt:      1719.74,
+          plob:    0,
+          usfoods: 2431.44,
+          cintas:  318,
+          paper:   0,
+          natures: 401.20,
+          drinks:  845,
+          bread:   154,
+        },
+      });
+      return;
+    }
     state.loaded = true;
     render();
   });
