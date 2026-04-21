@@ -104,11 +104,11 @@ function sortedWeeks() {
   return [...state.weeks].sort((a, b) => new Date(b.weekStart) - new Date(a.weekStart));
 }
 
-// Color thresholds — adjust to match your targets
+// Color thresholds
 function pctCls(pct, type) {
-  if (type === 'cog')    return pct < 0.30 ? 'positive' : pct < 0.36 ? 'warn' : 'negative';
-  if (type === 'labor')  return pct < 0.28 ? 'positive' : pct < 0.35 ? 'warn' : 'negative';
-  /* overall */          return pct < 0.58 ? 'positive' : pct < 0.68 ? 'warn' : 'negative';
+  if (type === 'cog')   return pct <= 0.40 ? 'positive' : pct <= 0.55 ? 'warn' : 'negative';
+  if (type === 'labor') return pct <= 0.40 ? 'positive' : pct <= 0.55 ? 'warn' : 'negative';
+  /* overall */         return pct <= 0.40 ? 'positive' : pct <= 0.55 ? 'warn' : 'negative';
 }
 
 // ── Render ────────────────────────────────────────────────────
