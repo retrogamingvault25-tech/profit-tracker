@@ -107,8 +107,8 @@ function sortedWeeks() {
 // Color thresholds
 function pctCls(pct, type) {
   if (type === 'cog')   return pct <= 0.40 ? 'positive' : pct <= 0.55 ? 'warn' : 'negative';
-  if (type === 'labor') return pct <= 0.40 ? 'positive' : pct <= 0.55 ? 'warn' : 'negative';
-  /* overall */         return pct <= 0.40 ? 'positive' : pct <= 0.55 ? 'warn' : 'negative';
+  if (type === 'labor') return pct <  0.20 ? 'positive' : pct <= 0.30 ? 'warn' : 'negative';
+  /* overall */         return pct <  0.60 ? 'positive' : pct <= 0.70 ? 'warn' : 'negative';
 }
 
 // ── Render ────────────────────────────────────────────────────
