@@ -33,6 +33,7 @@ const state = {
   loaded: false,
   modal: null,
   editWeek: null,
+  selectedWeekId: null,
 };
 
 // ── Firebase ──────────────────────────────────────────────────
@@ -160,9 +161,9 @@ function bindLogin() {
 
 // ── App Shell ─────────────────────────────────────────────────
 function renderApp() {
-  const weeks  = sortedWeeks();
-  const latest = weeks[0];
-  const latestStats = latest ? getWeekStats(latest) : null;
+  const weeks   = sortedWeeks();
+  const display = weeks.find(w => w.id === state.selectedWeekId) || weeks[0];
+  const displayStats = display ? getWeekStats(display) : null;
 
   return `
     <div class="app">
@@ -179,7 +180,8 @@ function renderApp() {
         </div>
       </header>
       <main class="main">
-        ${latestStats ? renderCurrentWeek(latest, latestStats) : renderEmpty()}
+        ${displayStats ? renderCurrentWeek(display, displayStats) : renderEmpty()}
+        ${weeks.length > 0 ? renderYTD(weeks) : ''}
         ${weeks.length > 0 ? renderHistory(weeks) : ''}
       </main>
       ${state.modal ? renderWeekModal() : ''}
@@ -191,7 +193,7 @@ function renderCurrentWeek(week, s) {
   return `
     <div class="sf-current">
       <div class="page-header">
-        <h2>Latest Week — ${escHtml(week.weekLabel)}</h2>
+        <h2>Week of ${escHtml(week.weekLabel)}</h2>
       </div>
 
       <div class="stats-grid">
@@ -256,6 +258,80 @@ function renderEmpty() {
     </div>`;
 }
 
+// ── Year-to-Date Totals ───────────────────────────────────────
+function renderYTD(weeks) {
+  const totals = weeks.reduce((acc, week) => {
+    const s = getWeekStats(week);
+    acc.sales    += s.sales;
+    acc.cogTotal += s.cogTotal;
+    acc.labor    += s.labor;
+    VENDORS.forEach(v => {
+      acc.vendors[v.key] = (acc.vendors[v.key] || 0) + (week.vendors?.[v.key] || 0);
+    });
+    return acc;
+  }, { sales: 0, cogTotal: 0, labor: 0, vendors: {} });
+
+  const cogPct     = totals.sales > 0 ? totals.cogTotal / totals.sales : 0;
+  const laborPct   = totals.sales > 0 ? totals.labor    / totals.sales : 0;
+  const overallPct = totals.sales > 0 ? (totals.cogTotal + totals.labor) / totals.sales : 0;
+
+  return `
+    <div class="section mt-24">
+      <h3>Year-to-Date Totals (${weeks.length} week${weeks.length !== 1 ? 's' : ''})</h3>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Total Sales</div>
+          <div class="stat-value positive">${fmt(totals.sales)}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total COG</div>
+          <div class="stat-value">${fmt(totals.cogTotal)}</div>
+          <div class="stat-sub ${pctCls(cogPct, 'cog')}">${fmtPct(cogPct)} of sales</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Labor</div>
+          <div class="stat-value">${fmt(totals.labor)}</div>
+          <div class="stat-sub ${pctCls(laborPct, 'labor')}">${fmtPct(laborPct)} of sales</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Overall %</div>
+          <div class="stat-value ${pctCls(overallPct, 'overall')}">${fmtPct(overallPct)}</div>
+          <div class="stat-sub">(COG + Labor) ÷ Sales</div>
+        </div>
+      </div>
+
+      <div class="card mt-24">
+        <div class="card-header"><h3>YTD Vendor Totals</h3></div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr><th>Vendor</th><th class="money">Total Spent</th><th class="money">% of COG</th><th class="money">% of Sales</th></tr>
+            </thead>
+            <tbody>
+              ${VENDORS.filter(v => (totals.vendors[v.key] || 0) > 0).map(v => {
+                const amt     = totals.vendors[v.key] || 0;
+                const ofCog   = totals.cogTotal > 0 ? amt / totals.cogTotal : 0;
+                const ofSales = totals.sales    > 0 ? amt / totals.sales    : 0;
+                return `<tr>
+                  <td><strong>${escHtml(v.label)}</strong></td>
+                  <td class="money">${fmt(amt)}</td>
+                  <td class="money text-dim">${fmtPct(ofCog)}</td>
+                  <td class="money text-dim">${fmtPct(ofSales)}</td>
+                </tr>`;
+              }).join('')}
+              <tr class="sf-total-row">
+                <td><strong>Total COG</strong></td>
+                <td class="money"><strong>${fmt(totals.cogTotal)}</strong></td>
+                <td class="money">100%</td>
+                <td class="money ${pctCls(cogPct, 'cog')}">${fmtPct(cogPct)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+}
+
 // ── History Table ─────────────────────────────────────────────
 function renderHistory(weeks) {
   return `
@@ -287,6 +363,7 @@ function renderHistory(weeks) {
                 <td class="money ${pctCls(s.laborPct, 'labor')}">${fmtPct(s.laborPct)}</td>
                 <td class="money ${pctCls(s.overallPct, 'overall')}">${fmtPct(s.overallPct)}</td>
                 <td class="action-cell" style="display:flex;gap:4px;">
+                  <button class="btn-sm-action" data-view-week="${week.id}">View</button>
                   <button class="btn-sm-action btn-sm-edit" data-edit-week="${week.id}">Edit</button>
                   <button class="btn-sm-action btn-sm-del"  data-delete-week="${week.id}">Del</button>
                 </td>
@@ -406,6 +483,15 @@ function bindApp() {
     }
     closeModal();
   });
+
+  // View week breakdown
+  document.querySelectorAll('[data-view-week]').forEach(btn =>
+    btn.addEventListener('click', () => {
+      state.selectedWeekId = btn.dataset.viewWeek;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      render();
+    })
+  );
 
   // Edit week
   document.querySelectorAll('[data-edit-week]').forEach(btn =>
