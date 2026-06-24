@@ -13,6 +13,12 @@ const firebaseConfig = {
 
 const PASSWORD = 'collectibles2024';
 
+const STORES = [
+  { key: 'boro',  label: 'Boro Store'  },
+  { key: 'beach', label: 'Beach Store' },
+  { key: 'ranch', label: 'Ranch Store' },
+];
+
 const VENDORS = [
   { label: 'Samuels',  key: 'samuels'  },
   { label: 'P&G',      key: 'pg'       },
@@ -34,6 +40,7 @@ const state = {
   modal: null,
   editWeek: null,
   selectedWeekId: null,
+  activeStore: 'boro',
 };
 
 // ── Firebase ──────────────────────────────────────────────────
@@ -101,7 +108,9 @@ function getWeekStats(week) {
 }
 
 function sortedWeeks() {
-  return [...state.weeks].sort((a, b) => new Date(b.weekStart) - new Date(a.weekStart));
+  return [...state.weeks]
+    .filter(w => (w.store || 'boro') === state.activeStore)
+    .sort((a, b) => new Date(b.weekStart) - new Date(a.weekStart));
 }
 
 // Color thresholds
@@ -177,6 +186,12 @@ function renderApp() {
             <button class="btn btn-primary" id="add-week-btn">+ Add Week</button>
             <button class="btn btn-ghost" id="logout-btn">Logout</button>
           </div>
+        </div>
+        <div class="sf-store-tabs">
+          ${STORES.map(s => `
+            <button class="sf-store-tab ${state.activeStore === s.key ? 'active' : ''}" data-store="${s.key}">
+              ${s.label}
+            </button>`).join('')}
         </div>
       </header>
       <main class="main">
@@ -439,6 +454,15 @@ function bindApp() {
     render();
   });
 
+  // Store tabs
+  document.querySelectorAll('[data-store]').forEach(btn =>
+    btn.addEventListener('click', () => {
+      state.activeStore = btn.dataset.store;
+      state.selectedWeekId = null;
+      render();
+    })
+  );
+
   const closeModal = () => { state.modal = null; state.editWeek = null; render(); };
   document.getElementById('modal-close')?.addEventListener('click', closeModal);
   document.getElementById('modal-cancel')?.addEventListener('click', closeModal);
@@ -474,6 +498,7 @@ function bindApp() {
       sales,
       labor: parseFloat(document.getElementById('wk-labor').value) || 0,
       vendors,
+      store: state.activeStore,
     };
 
     if (state.modal === 'edit-week') {
