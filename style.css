@@ -518,6 +518,21 @@ body {
 .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .badge-cat { background: rgba(99,102,241,0.15); color: #818cf8; }
 
+/* ── Invincible Missing Grid ───────────────────────────────── */
+.inv-missing-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.inv-missing-num {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--sub);
+}
+
 /* ── Responsive ────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }

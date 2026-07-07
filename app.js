@@ -26,10 +26,12 @@ const state = {
   challengeLots: [],
   challengeSales: [],
   challengeExpenses: [],
+  invincible: [],
   loaded: false,
   modal: null,
   editLot: null,
   editChallengeLot: null,
+  editComic: null,
   filterCategory: 'all',
   sortLots: 'date-desc',
 };
@@ -64,6 +66,11 @@ function initFirebase() {
 
   onSnapshot(collection(db, 'challenge_expenses'), snap => {
     state.challengeExpenses = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    render();
+  });
+
+  onSnapshot(collection(db, 'invincible_comics'), snap => {
+    state.invincible = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     render();
   });
 
@@ -161,6 +168,19 @@ async function addChallengeSale(data) {
 
 async function deleteChallengeSale(id) {
   await deleteDoc(doc(db, 'challenge_sales', id));
+}
+
+async function addComic(data) {
+  const id = 'comic_' + Date.now();
+  await setDoc(doc(db, 'invincible_comics', id), { id, ...data, createdAt: new Date().toISOString() });
+}
+
+async function updateComic(id, data) {
+  await setDoc(doc(db, 'invincible_comics', id), data);
+}
+
+async function deleteComic(id) {
+  await deleteDoc(doc(db, 'invincible_comics', id));
 }
 
 // ── Stats ─────────────────────────────────────────────────────
@@ -289,6 +309,7 @@ function renderApp() {
   else if (state.view === 'lot-detail') content = renderLotDetail();
   else if (state.view === 'challenge') content = renderChallenge();
   else if (state.view === 'challenge-lot-detail') content = renderChallengeLotDetail();
+  else if (state.view === 'invincible') content = renderInvincible();
 
   return `
     <div class="app">
@@ -302,6 +323,7 @@ function renderApp() {
             <button class="nav-btn ${state.view === 'dashboard' ? 'active' : ''}" data-nav="dashboard">Dashboard</button>
             <button class="nav-btn ${['lots','lot-detail'].includes(state.view) ? 'active' : ''}" data-nav="lots">Lots</button>
             <button class="nav-btn ${['challenge','challenge-lot-detail'].includes(state.view) ? 'active' : ''}" data-nav="challenge">🏆 $10→$5K</button>
+            <button class="nav-btn ${state.view === 'invincible' ? 'active' : ''}" data-nav="invincible">📚 Invincible</button>
           </nav>
           <button class="btn btn-ghost" id="logout-btn">Logout</button>
         </div>
@@ -568,6 +590,99 @@ function renderLotDetail() {
   `;
 }
 
+// ── Invincible Comics View ────────────────────────────────────
+function renderInvincible() {
+  const owned = [...state.invincible].sort((a, b) => a.issue - b.issue);
+  const ownedNums = new Set(owned.map(c => c.issue));
+  const missing = [];
+  for (let i = 1; i <= 144; i++) {
+    if (!ownedNums.has(i)) missing.push(i);
+  }
+  const totalSpent = owned.reduce((s, c) => s + (c.pricePaid || 0), 0);
+  const pctComplete = ((owned.length / 144) * 100).toFixed(1);
+  const avgCost = owned.length > 0 ? fmt(totalSpent / owned.length) : '$0.00';
+
+  return `
+    <div class="invincible-view">
+      <div class="page-header">
+        <h2>📚 Invincible Comics</h2>
+        <button class="btn btn-primary" data-open-modal="add-comic">+ Add Issue</button>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Issues Owned</div>
+          <div class="stat-value">${owned.length} <span style="font-size:14px;color:var(--sub)">/ 144</span></div>
+          <div class="stat-sub">${pctComplete}% complete</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Spent</div>
+          <div class="stat-value positive">${fmt(totalSpent)}</div>
+          <div class="stat-sub">across all issues</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Still Needed</div>
+          <div class="stat-value">${missing.length}</div>
+          <div class="stat-sub">issues missing</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Avg Per Issue</div>
+          <div class="stat-value">${avgCost}</div>
+          <div class="stat-sub">cost per issue</div>
+        </div>
+      </div>
+
+      ${owned.length === 0 ? `
+        <div class="empty-state">
+          <div class="empty-icon">📚</div>
+          <p>No issues tracked yet. Add your first issue to get started!</p>
+          <button class="btn btn-primary" data-open-modal="add-comic">+ Add Issue</button>
+        </div>
+      ` : `
+        <div class="section">
+          <h3>Owned Issues (${owned.length})</h3>
+          <div class="table-wrap">
+            <table class="table">
+              <thead><tr>
+                <th>#</th>
+                <th>Condition</th>
+                <th>Price Paid</th>
+                <th>Notes</th>
+                <th></th>
+              </tr></thead>
+              <tbody>
+                ${owned.map(c => `
+                  <tr>
+                    <td><strong>Issue #${c.issue}</strong></td>
+                    <td><span class="badge badge-${c.condition === 'graded' ? 'games' : 'cards'}">${c.condition === 'graded' ? '🏅 Graded' : '📄 Raw'}</span></td>
+                    <td>${fmt(c.pricePaid || 0)}</td>
+                    <td class="text-dim">${escHtml(c.notes || '—')}</td>
+                    <td style="white-space:nowrap">
+                      <button class="btn-sm-action" data-edit-comic="${c.id}" style="margin-right:4px">Edit</button>
+                      <button class="btn-sm-action btn-sm-del" data-delete-comic="${c.id}">Del</button>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `}
+
+      <div class="section">
+        ${missing.length === 0
+          ? `<div class="empty-state small"><p>🎉 Complete set! All 144 issues owned.</p></div>`
+          : `
+            <h3>Still Needed (${missing.length})</h3>
+            <div class="inv-missing-grid">
+              ${missing.map(n => `<span class="inv-missing-num">#${n}</span>`).join('')}
+            </div>
+          `}
+      </div>
+    </div>
+  `;
+}
+
 // ── Modals ────────────────────────────────────────────────────
 function renderModal() {
   const overlay = `<div class="modal-overlay" id="modal-overlay">`;
@@ -782,6 +897,51 @@ function renderModal() {
         <div class="modal-footer">
           <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
           <button class="btn btn-primary" id="cexp-submit-btn">Add Expense</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  if (state.modal === 'add-comic' || state.modal === 'edit-comic') {
+    const isEdit = state.modal === 'edit-comic';
+    const comic = isEdit ? state.editComic : null;
+    const ownedNums = new Set(state.invincible.map(c => c.issue));
+    if (isEdit && comic) ownedNums.delete(comic.issue);
+    const availableIssues = Array.from({ length: 144 }, (_, i) => i + 1).filter(n => !ownedNums.has(n));
+    return `${overlay}
+      <div class="modal">
+        <div class="modal-header">
+          <h3>${isEdit ? 'Edit Issue' : 'Add Issue'}</h3>
+          <button class="modal-close" id="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Issue # *</label>
+              <select id="comic-issue" class="select">
+                ${availableIssues.map(n => `<option value="${n}" ${isEdit && comic.issue === n ? 'selected' : ''}>#${n}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Condition *</label>
+              <select id="comic-condition" class="select">
+                <option value="raw" ${isEdit && comic.condition === 'raw' ? 'selected' : ''}>📄 Raw</option>
+                <option value="graded" ${isEdit && comic.condition === 'graded' ? 'selected' : ''}>🏅 Graded</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Price Paid *</label>
+            <input type="number" id="comic-price" class="input" placeholder="0.00" min="0" step="0.01" value="${isEdit ? (comic.pricePaid || '') : ''}">
+          </div>
+          <div class="form-group">
+            <label>Notes</label>
+            <textarea id="comic-notes" class="input textarea" placeholder="Grade, slab company, story arc, etc.">${isEdit ? escHtml(comic.notes || '') : ''}</textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
+          <button class="btn btn-primary" id="comic-submit-btn">${isEdit ? 'Save Changes' : 'Add Issue'}</button>
         </div>
       </div>
     </div>`;
@@ -1224,6 +1384,43 @@ function bindApp() {
     });
     closeModal();
   });
+
+  // Invincible — submit comic (add/edit)
+  document.getElementById('comic-submit-btn')?.addEventListener('click', async () => {
+    const issue = parseInt(document.getElementById('comic-issue').value);
+    const pricePaid = parseFloat(document.getElementById('comic-price').value);
+    if (!issue || isNaN(pricePaid)) { alert('Please fill in issue number and price paid.'); return; }
+    const data = {
+      issue,
+      condition: document.getElementById('comic-condition').value,
+      pricePaid,
+      notes: document.getElementById('comic-notes').value.trim(),
+    };
+    if (state.modal === 'edit-comic') {
+      await updateComic(state.editComic.id, { ...state.editComic, ...data });
+    } else {
+      await addComic(data);
+    }
+    state.modal = null; state.editComic = null; render();
+  });
+
+  // Invincible — edit comic button
+  document.querySelectorAll('[data-edit-comic]').forEach(btn =>
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      state.editComic = state.invincible.find(c => c.id === btn.dataset.editComic) || null;
+      state.modal = 'edit-comic';
+      render();
+    })
+  );
+
+  // Invincible — delete comic
+  document.querySelectorAll('[data-delete-comic]').forEach(btn =>
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      if (confirm('Remove this issue from your collection?')) await deleteComic(btn.dataset.deleteComic);
+    })
+  );
 }
 
 // ── Init ──────────────────────────────────────────────────────
