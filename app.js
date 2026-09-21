@@ -22,6 +22,7 @@ const state = {
   selectedLotId: null,
   selectedChallengeLotId: null,
   selectedConsignmentItemId: null,
+  selectedConsignorId: null,
   lots: [],
   sales: [],
   challengeLots: [],
@@ -482,6 +483,7 @@ function renderApp() {
   else if (state.view === 'challenge-lot-detail') content = renderChallengeLotDetail();
   else if (state.view === 'invincible') content = renderInvincible();
   else if (state.view === 'consignment') content = renderConsignment();
+  else if (state.view === 'consignor-detail') content = renderConsignorDetail();
   else if (state.view === 'consignment-item-detail') content = renderConsignmentItemDetail();
 
   return `
@@ -497,7 +499,7 @@ function renderApp() {
             <button class="nav-btn ${['lots','lot-detail'].includes(state.view) ? 'active' : ''}" data-nav="lots">Lots</button>
             <button class="nav-btn ${['challenge','challenge-lot-detail'].includes(state.view) ? 'active' : ''}" data-nav="challenge">🏆 $10→$5K</button>
             <button class="nav-btn ${state.view === 'invincible' ? 'active' : ''}" data-nav="invincible">📚 Invincible</button>
-            <button class="nav-btn ${['consignment','consignment-item-detail'].includes(state.view) ? 'active' : ''}" data-nav="consignment">🤝 Consignment</button>
+            <button class="nav-btn ${['consignment','consignor-detail','consignment-item-detail'].includes(state.view) ? 'active' : ''}" data-nav="consignment">🤝 Consignment</button>
           </nav>
           <button class="btn btn-ghost" id="logout-btn">Logout</button>
         </div>
@@ -860,41 +862,29 @@ function renderInvincible() {
 // ── Consignment View ──────────────────────────────────────────
 function renderConsignment() {
   const stats = getConsignmentOverallStats();
-  const items = [...state.consignmentItems].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const consignors = [...state.consignors].sort((a, b) => a.name.localeCompare(b.name));
 
-  const inHand = items.filter(i => getConsignmentItemStats(i.id).salesCount === 0);
-  const payoutDue = items.filter(i => {
-    const s = getConsignmentItemStats(i.id);
-    return s.salesCount > 0 && !s.fullyPaid;
-  });
-  const paidOut = items.filter(i => getConsignmentItemStats(i.id).fullyPaid);
-
-  const consignorName = id => {
-    const c = state.consignors.find(c => c.id === id);
-    return c ? c.name : 'Unknown';
-  };
-
-  const itemCard = (item) => {
-    const s = getConsignmentItemStats(item.id);
-    const statusBadge = s.salesCount === 0
-      ? `<span class="badge badge-cat">In Hand</span>`
-      : s.fullyPaid
-        ? `<span class="badge badge-paid">Paid Out</span>`
-        : `<span class="badge badge-due">Payout Due</span>`;
+  const consignorCard = (c) => {
+    const items = state.consignmentItems.filter(i => i.consignorId === c.id);
+    const totals = items.reduce((acc, i) => {
+      const s = getConsignmentItemStats(i.id);
+      acc.totalNet += s.totalNet; acc.yourCut += s.yourCut; acc.owed += s.owed;
+      return acc;
+    }, { totalNet: 0, yourCut: 0, owed: 0 });
     return `
-      <div class="lot-card" data-goto-consignment-item="${item.id}">
+      <div class="lot-card" data-goto-consignor="${c.id}">
         <div class="lot-card-header">
-          <span class="badge badge-${item.category}">${catIcon(item.category)} ${capitalize(item.category)}</span>
-          ${statusBadge}
+          <span class="badge badge-cat">${items.length} item${items.length !== 1 ? 's' : ''}</span>
+          <span class="lot-date">${c.splitPct}% split</span>
         </div>
-        <h3 class="lot-name">${escHtml(item.name)}</h3>
-        <p class="lot-notes">From: ${escHtml(consignorName(item.consignorId))} · ${item.splitPct}% split</p>
+        <h3 class="lot-name">${escHtml(c.name)}</h3>
+        ${c.notes ? `<p class="lot-notes">${escHtml(c.notes)}</p>` : ''}
         <div class="lot-financials">
-          <div class="lot-fin-row"><span>Net Revenue (${s.salesCount} sales)</span><span class="positive">${fmt(s.totalNet)}</span></div>
-          <div class="lot-fin-row"><span>Your Cut</span><span>${fmt(s.yourCut)}</span></div>
+          <div class="lot-fin-row"><span>Net Revenue</span><span class="positive">${fmt(totals.totalNet)}</span></div>
+          <div class="lot-fin-row"><span>Your Cut</span><span>${fmt(totals.yourCut)}</span></div>
           <div class="lot-fin-row lot-fin-total">
             <span>Owed to Consignor</span>
-            <span class="${s.owed > 0 ? 'negative' : 'positive'}">${fmt(s.owed)}</span>
+            <span class="${totals.owed > 0 ? 'negative' : 'positive'}">${fmt(totals.owed)}</span>
           </div>
         </div>
       </div>`;
@@ -904,10 +894,7 @@ function renderConsignment() {
     <div class="consignment-view">
       <div class="page-header">
         <h2>🤝 Consignment</h2>
-        <div class="header-actions">
-          <button class="btn btn-ghost" data-open-modal="add-consignor">+ Add Consignor</button>
-          <button class="btn btn-primary" data-open-modal="add-consignment-item">+ Add Item</button>
-        </div>
+        <button class="btn btn-primary" data-open-modal="add-consignor">+ Add Consignor</button>
       </div>
 
       <div class="stats-grid">
@@ -933,50 +920,112 @@ function renderConsignment() {
         </div>
       </div>
 
-      <div class="section">
-        <div class="section-header">
-          <h3>Consignors (${state.consignors.length})</h3>
-        </div>
-        ${state.consignors.length === 0 ? `
-          <div class="empty-state small"><p>No consignors yet — add one to start tracking items.</p></div>
-        ` : `
-          <div class="table-wrap">
-            <table class="table">
-              <thead><tr><th>Name</th><th>Default Split</th><th>Items</th><th>Owed</th><th></th></tr></thead>
-              <tbody>
-                ${state.consignors.map(c => {
-                  const owed = getConsignorOwed(c.id);
-                  const itemCount = state.consignmentItems.filter(i => i.consignorId === c.id).length;
-                  return `
-                    <tr>
-                      <td>${escHtml(c.name)}</td>
-                      <td>${c.splitPct}%</td>
-                      <td>${itemCount}</td>
-                      <td class="${owed > 0 ? 'negative' : ''}">${fmt(owed)}</td>
-                      <td class="action-cell">
-                        <button class="btn-sm-action" data-edit-consignor="${c.id}">Edit</button>
-                        <button class="btn-sm-action btn-sm-del" data-delete-consignor="${c.id}">Del</button>
-                      </td>
-                    </tr>`;
-                }).join('')}
-              </tbody>
-            </table>
-          </div>
-        `}
-      </div>
-
-      ${items.length === 0 ? `
+      ${consignors.length === 0 ? `
         <div class="empty-state">
           <div class="empty-icon">🤝</div>
-          <p>No consignment items yet. Add a consignor and item to get started!</p>
-          <button class="btn btn-primary" data-open-modal="add-consignment-item">+ Add Item</button>
-          ${state.consignors.length === 0 ? `<button class="btn btn-outline btn-sm" id="import-jeffs-trains-btn" style="margin-left:8px">Import Jeff's Trains Data</button>` : ''}
+          <p>No consignors yet. Add your first consignor to get started!</p>
+          <button class="btn btn-primary" data-open-modal="add-consignor">+ Add Consignor</button>
+          <button class="btn btn-outline btn-sm" id="import-jeffs-trains-btn" style="margin-left:8px">Import Jeff's Trains Data</button>
         </div>
       ` : `
-        ${inHand.length > 0 ? `<div class="section"><h3>In Hand (${inHand.length})</h3><div class="lots-grid">${inHand.map(itemCard).join('')}</div></div>` : ''}
-        ${payoutDue.length > 0 ? `<div class="section"><h3>Payout Due (${payoutDue.length})</h3><div class="lots-grid">${payoutDue.map(itemCard).join('')}</div></div>` : ''}
-        ${paidOut.length > 0 ? `<div class="section"><h3>Paid Out (${paidOut.length})</h3><div class="lots-grid">${paidOut.map(itemCard).join('')}</div></div>` : ''}
+        <div class="section">
+          <h3>Consignors (${consignors.length})</h3>
+          <div class="lots-grid">${consignors.map(consignorCard).join('')}</div>
+        </div>
       `}
+    </div>
+  `;
+}
+
+function renderConsignorDetail() {
+  const consignor = state.consignors.find(c => c.id === state.selectedConsignorId);
+  if (!consignor) { state.view = 'consignment'; return renderConsignment(); }
+
+  const items = state.consignmentItems
+    .filter(i => i.consignorId === consignor.id)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  const inHand = items.filter(i => getConsignmentItemStats(i.id).salesCount === 0);
+  const payoutDue = items.filter(i => {
+    const s = getConsignmentItemStats(i.id);
+    return s.salesCount > 0 && !s.fullyPaid;
+  });
+  const paidOut = items.filter(i => getConsignmentItemStats(i.id).fullyPaid);
+
+  const totals = items.reduce((acc, i) => {
+    const s = getConsignmentItemStats(i.id);
+    acc.totalGross += s.totalGross; acc.totalFees += s.totalFees; acc.totalNet += s.totalNet;
+    acc.consignorCut += s.consignorCut; acc.yourCut += s.yourCut; acc.owed += s.owed;
+    return acc;
+  }, { totalGross: 0, totalFees: 0, totalNet: 0, consignorCut: 0, yourCut: 0, owed: 0 });
+
+  const itemCard = (item) => {
+    const s = getConsignmentItemStats(item.id);
+    const statusBadge = s.salesCount === 0
+      ? `<span class="badge badge-cat">In Hand</span>`
+      : s.fullyPaid
+        ? `<span class="badge badge-paid">Paid Out</span>`
+        : `<span class="badge badge-due">Payout Due</span>`;
+    return `
+      <div class="lot-card" data-goto-consignment-item="${item.id}">
+        <div class="lot-card-header">
+          <span class="badge badge-${item.category}">${catIcon(item.category)} ${capitalize(item.category)}</span>
+          ${statusBadge}
+        </div>
+        <h3 class="lot-name">${escHtml(item.name)}</h3>
+        <p class="lot-notes">${item.splitPct}% split to ${escHtml(consignor.name)}</p>
+        <div class="lot-financials">
+          <div class="lot-fin-row"><span>Net Revenue (${s.salesCount} sales)</span><span class="positive">${fmt(s.totalNet)}</span></div>
+          <div class="lot-fin-row"><span>Your Cut</span><span>${fmt(s.yourCut)}</span></div>
+          <div class="lot-fin-row lot-fin-total">
+            <span>Owed to Consignor</span>
+            <span class="${s.owed > 0 ? 'negative' : 'positive'}">${fmt(s.owed)}</span>
+          </div>
+        </div>
+      </div>`;
+  };
+
+  return `
+    <div class="lot-detail">
+      <div class="page-header">
+        <div class="back-nav">
+          <button class="btn btn-ghost" id="consignor-back-btn">← Back</button>
+          <span class="breadcrumb">Consignment / ${escHtml(consignor.name)}</span>
+        </div>
+        <div class="header-actions">
+          <button class="btn btn-ghost" id="edit-consignor-btn">Edit</button>
+          <button class="btn btn-danger" id="delete-consignor-btn">Delete Consignor</button>
+        </div>
+      </div>
+
+      <div class="lot-detail-header">
+        <div class="lot-detail-info">
+          <span class="badge badge-cat">${items.length} item${items.length !== 1 ? 's' : ''}</span>
+          <h2>${escHtml(consignor.name)}</h2>
+          <p class="lot-detail-date">${consignor.splitPct}% default split</p>
+          ${consignor.notes ? `<p class="lot-detail-notes">${escHtml(consignor.notes)}</p>` : ''}
+        </div>
+        <div class="lot-pnl">
+          <div class="pnl-row"><span>Gross Sales</span><span>${fmt(totals.totalGross)}</span></div>
+          <div class="pnl-row"><span>Fees</span><span class="negative">-${fmt(totals.totalFees)}</span></div>
+          <div class="pnl-row"><span>Net Revenue</span><span class="positive">${fmt(totals.totalNet)}</span></div>
+          <div class="pnl-row"><span>Consignor Cut</span><span>${fmt(totals.consignorCut)}</span></div>
+          <div class="pnl-row pnl-total"><span>Your Cut</span><span class="positive">${fmt(totals.yourCut)}</span></div>
+          <div class="pnl-row"><span>Owed to Consignor</span><span class="${totals.owed > 0 ? 'negative' : 'positive'}">${fmt(totals.owed)}</span></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <h3>Items (${items.length})</h3>
+          <button class="btn btn-primary" data-open-modal="add-consignment-item">+ Add Item</button>
+        </div>
+        ${items.length === 0 ? `<div class="empty-state small"><p>No items yet for this consignor.</p></div>` : ''}
+      </div>
+
+      ${inHand.length > 0 ? `<div class="section"><h3>In Hand (${inHand.length})</h3><div class="lots-grid">${inHand.map(itemCard).join('')}</div></div>` : ''}
+      ${payoutDue.length > 0 ? `<div class="section"><h3>Payout Due (${payoutDue.length})</h3><div class="lots-grid">${payoutDue.map(itemCard).join('')}</div></div>` : ''}
+      ${paidOut.length > 0 ? `<div class="section"><h3>Paid Out (${paidOut.length})</h3><div class="lots-grid">${paidOut.map(itemCard).join('')}</div></div>` : ''}
     </div>
   `;
 }
@@ -997,7 +1046,7 @@ function renderConsignmentItemDetail() {
       <div class="page-header">
         <div class="back-nav">
           <button class="btn btn-ghost" id="consignment-back-btn">← Back</button>
-          <span class="breadcrumb">Consignment / ${escHtml(item.name)}</span>
+          <span class="breadcrumb">Consignment / ${escHtml(consignor ? consignor.name : 'Unknown')} / ${escHtml(item.name)}</span>
         </div>
         <div class="header-actions">
           <button class="btn btn-ghost" id="edit-consignment-item-btn">Edit</button>
@@ -1394,7 +1443,7 @@ function renderModal() {
             <div class="form-group">
               <label>Consignor *</label>
               <select id="citem-consignor" class="select">
-                ${state.consignors.map(c => `<option value="${c.id}" data-split="${c.splitPct}" ${isEdit && item.consignorId === c.id ? 'selected' : ''}>${escHtml(c.name)}</option>`).join('')}
+                ${state.consignors.map(c => `<option value="${c.id}" data-split="${c.splitPct}" ${(isEdit ? item.consignorId === c.id : state.selectedConsignorId === c.id) ? 'selected' : ''}>${escHtml(c.name)}</option>`).join('')}
               </select>
             </div>
             <div class="form-group">
@@ -1413,7 +1462,7 @@ function renderModal() {
             </div>
             <div class="form-group">
               <label>Split — % to Consignor *</label>
-              <input type="number" id="citem-split" class="input" min="0" max="100" step="1" value="${isEdit ? item.splitPct : (state.consignors[0] ? state.consignors[0].splitPct : 70)}">
+              <input type="number" id="citem-split" class="input" min="0" max="100" step="1" value="${isEdit ? item.splitPct : ((state.consignors.find(c => c.id === state.selectedConsignorId) || state.consignors[0] || { splitPct: 70 }).splitPct)}">
             </div>
           </div>
           <div class="form-group">
@@ -1697,6 +1746,7 @@ function bindApp() {
       state.selectedLotId = null;
       state.selectedChallengeLotId = null;
       state.selectedConsignmentItemId = null;
+      state.selectedConsignorId = null;
       render();
     })
   );
@@ -1959,6 +2009,22 @@ function bindApp() {
     }
   });
 
+  // Consignment — go to consignor detail
+  document.querySelectorAll('[data-goto-consignor]').forEach(el =>
+    el.addEventListener('click', () => {
+      state.selectedConsignorId = el.dataset.gotoConsignor;
+      state.view = 'consignor-detail';
+      render();
+    })
+  );
+
+  // Consignment — back to consignor list
+  document.getElementById('consignor-back-btn')?.addEventListener('click', () => {
+    state.view = 'consignment';
+    state.selectedConsignorId = null;
+    render();
+  });
+
   // Consignment — go to item detail
   document.querySelectorAll('[data-goto-consignment-item]').forEach(el =>
     el.addEventListener('click', () => {
@@ -1968,9 +2034,11 @@ function bindApp() {
     })
   );
 
-  // Consignment — back to list
+  // Consignment — back to consignor detail
   document.getElementById('consignment-back-btn')?.addEventListener('click', () => {
-    state.view = 'consignment';
+    const item = state.consignmentItems.find(i => i.id === state.selectedConsignmentItemId);
+    state.selectedConsignorId = item ? item.consignorId : state.selectedConsignorId;
+    state.view = 'consignor-detail';
     state.selectedConsignmentItemId = null;
     render();
   });
@@ -1990,22 +2058,20 @@ function bindApp() {
   });
 
   // Consignment — edit consignor
-  document.querySelectorAll('[data-edit-consignor]').forEach(btn =>
-    btn.addEventListener('click', () => {
-      state.editConsignor = state.consignors.find(c => c.id === btn.dataset.editConsignor) || null;
-      state.modal = 'edit-consignor';
-      render();
-    })
-  );
+  document.getElementById('edit-consignor-btn')?.addEventListener('click', () => {
+    state.editConsignor = state.consignors.find(c => c.id === state.selectedConsignorId) || null;
+    state.modal = 'edit-consignor';
+    render();
+  });
 
   // Consignment — delete consignor
-  document.querySelectorAll('[data-delete-consignor]').forEach(btn =>
-    btn.addEventListener('click', async () => {
-      if (confirm('Delete this consignor and ALL their items and sales? This cannot be undone.')) {
-        await deleteConsignor(btn.dataset.deleteConsignor);
-      }
-    })
-  );
+  document.getElementById('delete-consignor-btn')?.addEventListener('click', async () => {
+    if (confirm('Delete this consignor and ALL their items and sales? This cannot be undone.')) {
+      await deleteConsignor(state.selectedConsignorId);
+      state.selectedConsignorId = null;
+      state.view = 'consignment';
+    }
+  });
 
   // Consignment — submit item (add/edit)
   document.getElementById('citem-submit-btn')?.addEventListener('click', async () => {
@@ -2050,9 +2116,11 @@ function bindApp() {
   // Consignment — delete item
   document.getElementById('delete-consignment-item-btn')?.addEventListener('click', async () => {
     if (confirm('Delete this item and ALL its sales? This cannot be undone.')) {
+      const item = state.consignmentItems.find(i => i.id === state.selectedConsignmentItemId);
       await deleteConsignmentItem(state.selectedConsignmentItemId);
+      state.selectedConsignorId = item ? item.consignorId : state.selectedConsignorId;
       state.selectedConsignmentItemId = null;
-      state.view = 'consignment';
+      state.view = 'consignor-detail';
     }
   });
 
