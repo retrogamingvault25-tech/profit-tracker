@@ -258,6 +258,65 @@ async function toggleConsignmentSalePaid(saleObj) {
   });
 }
 
+// One-time import of Jeff's Trains consignment spreadsheet.
+// Fees are derived as Sale - (Ippys + Jeff) since the sheet's own
+// "After Fees" column was inconsistent; splitPct is Jeff's exact
+// share of that net so dollar amounts match the sheet precisely.
+async function importJeffsTrains() {
+  const consignorId = 'consignor_jeff_trains';
+  const rows = [
+    { name: '6-18321 Lionel', category: 'toys', sale: 215.00, fees: 34.23, splitPct: 58.39, date: '2026-05-27', paidDate: '2026-05-27' },
+    { name: 'Spiderman Shattered Dimensions', category: 'games', sale: 104.95, fees: 15.84, splitPct: 62.31, date: '2026-05-27', paidDate: '2026-05-27' },
+    { name: '6-16074 Lionel', category: 'toys', sale: 44.99, fees: 7.40, splitPct: 58.13, date: '2026-06-01', paidDate: '2026-06-01' },
+    { name: '6-38151 and 6-38152', category: 'toys', sale: 233.99, fees: 29.80, splitPct: 59.90, date: '2026-06-03', paidDate: '2026-06-03' },
+    { name: '6-16610 Lionel', category: 'toys', sale: 14.99, fees: 3.37, splitPct: 54.91, date: '2026-06-05', paidDate: '2026-06-05' },
+    { name: '6-18404 Lionel', category: 'toys', sale: 46.99, fees: 7.25, splitPct: 58.63, date: '2026-06-09', paidDate: '2026-06-09' },
+    { name: '6-17801 Lionel', category: 'toys', sale: 22.95, fees: 5.53, splitPct: 53.89, date: '2026-06-26', paidDate: '2026-06-26' },
+    { name: '6-16173 Lionel', category: 'toys', sale: 59.95, fees: 7.75, splitPct: 59.77, date: '2026-07-01', paidDate: '2026-07-01' },
+    { name: '6-18157 Lionel', category: 'toys', sale: 170.00, fees: 22.10, splitPct: 59.77, date: '2026-07-09', paidDate: '2026-07-09' },
+    { name: '6-18918/6-18929 Lionel', category: 'toys', sale: 165.00, fees: 21.45, splitPct: 59.77, date: '2026-07-22', paidDate: '2026-07-22' },
+    { name: 'PS3 Games', category: 'games', sale: 162.00, fees: 17.82, splitPct: 60.67, date: '2026-07-30', paidDate: '2026-07-30' },
+    { name: '6-26775 Lionel', category: 'toys', sale: 36.95, fees: 4.80, splitPct: 59.81, date: '2026-08-01', paidDate: '2026-09-08' },
+    { name: '6-19706 Lionel', category: 'toys', sale: 42.99, fees: 10.50, splitPct: 60.30, date: '2026-08-05', paidDate: '2026-09-08' },
+    { name: '6-19929 Lionel', category: 'toys', sale: 14.99, fees: 1.99, splitPct: 65.38, date: '2026-08-05', paidDate: '2026-09-08' },
+  ];
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'consignors', consignorId), {
+    id: consignorId,
+    name: 'Jeff',
+    splitPct: 60,
+    notes: "Imported from Jeff's Trains spreadsheet",
+    createdAt: new Date().toISOString(),
+  });
+  rows.forEach((r, i) => {
+    const itemId = 'citem_jeff_' + i;
+    const saleId = 'csaleitem_jeff_' + i;
+    batch.set(doc(db, 'consignment_items', itemId), {
+      id: itemId,
+      consignorId,
+      name: r.name,
+      category: r.category,
+      dateReceived: r.date,
+      splitPct: r.splitPct,
+      notes: "Imported from Jeff's Trains spreadsheet",
+      createdAt: new Date().toISOString(),
+    });
+    batch.set(doc(db, 'consignment_sales', saleId), {
+      id: saleId,
+      itemId,
+      price: r.sale,
+      fees: r.fees,
+      date: r.date,
+      platform: '',
+      paidOut: true,
+      paidDate: r.paidDate,
+      createdAt: new Date().toISOString(),
+    });
+  });
+  await batch.commit();
+  alert(`Imported ${rows.length} items from Jeff's Trains, all marked paid.`);
+}
+
 // ── Stats ─────────────────────────────────────────────────────
 function getLotStats(lotId) {
   const lot = state.lots.find(l => l.id === lotId);
@@ -911,6 +970,7 @@ function renderConsignment() {
           <div class="empty-icon">🤝</div>
           <p>No consignment items yet. Add a consignor and item to get started!</p>
           <button class="btn btn-primary" data-open-modal="add-consignment-item">+ Add Item</button>
+          ${state.consignors.length === 0 ? `<button class="btn btn-outline btn-sm" id="import-jeffs-trains-btn" style="margin-left:8px">Import Jeff's Trains Data</button>` : ''}
         </div>
       ` : `
         ${inHand.length > 0 ? `<div class="section"><h3>In Hand (${inHand.length})</h3><div class="lots-grid">${inHand.map(itemCard).join('')}</div></div>` : ''}
@@ -1891,6 +1951,13 @@ function bindApp() {
       if (confirm('Remove this issue from your collection?')) await deleteComic(btn.dataset.deleteComic);
     })
   );
+
+  // Consignment — one-time import of Jeff's Trains spreadsheet
+  document.getElementById('import-jeffs-trains-btn')?.addEventListener('click', async () => {
+    if (confirm("Import Jeff's Trains consignment data (1 consignor, 14 items, 14 sales, all marked paid)?")) {
+      await importJeffsTrains();
+    }
+  });
 
   // Consignment — go to item detail
   document.querySelectorAll('[data-goto-consignment-item]').forEach(el =>
