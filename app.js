@@ -23,6 +23,8 @@ const state = {
   selectedChallengeLotId: null,
   selectedConsignmentItemId: null,
   selectedConsignorId: null,
+  invoiceMonth: null,
+  invoiceSaleIds: [],
   lots: [],
   sales: [],
   challengeLots: [],
@@ -259,6 +261,66 @@ async function toggleConsignmentSalePaid(saleObj) {
   });
 }
 
+async function markSalesPaid(saleIds) {
+  if (saleIds.length === 0) return;
+  const batch = writeBatch(db);
+  const paidDate = today();
+  saleIds.forEach(id => {
+    const s = state.consignmentSales.find(x => x.id === id);
+    if (s) batch.set(doc(db, 'consignment_sales', id), { ...s, paidOut: true, paidDate });
+  });
+  await batch.commit();
+}
+
+async function markItemSalesPaid(itemId) {
+  const ids = state.consignmentSales.filter(s => s.itemId === itemId && !s.paidOut).map(s => s.id);
+  await markSalesPaid(ids);
+}
+
+function printInvoice(consignor, sales, month) {
+  const rows = sales.map(s => {
+    const item = state.consignmentItems.find(i => i.id === s.itemId);
+    const net = (s.price || 0) - (s.fees || 0);
+    const cut = getSaleCut(s);
+    return `<tr>
+      <td>${escHtml(item ? item.name : 'Unknown')}</td>
+      <td>${fmtDate(s.date)}</td>
+      <td>${fmt(s.price)}</td>
+      <td>${fmt(s.fees || 0)}</td>
+      <td>${fmt(net)}</td>
+      <td>${fmt(cut)}</td>
+    </tr>`;
+  }).join('');
+  const total = sales.reduce((sum, s) => sum + getSaleCut(s), 0);
+  const win = window.open('', '_blank');
+  if (!win) { alert('Please allow pop-ups to print the invoice.'); return; }
+  win.document.write(`
+    <!DOCTYPE html><html><head><title>Invoice - ${escHtml(consignor.name)} - ${fmtMonth(month)}</title>
+    <style>
+      body { font-family: -apple-system, Arial, sans-serif; padding: 40px; color: #111; }
+      h1 { font-size: 22px; margin-bottom: 4px; }
+      .sub { color: #555; margin-bottom: 24px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+      th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #ddd; font-size: 13px; }
+      th { background: #f3f3f3; }
+      tfoot td { font-weight: 700; border-top: 2px solid #333; }
+      td:nth-child(3), td:nth-child(4), td:nth-child(5), td:nth-child(6),
+      th:nth-child(3), th:nth-child(4), th:nth-child(5), th:nth-child(6) { text-align: right; }
+    </style></head><body>
+    <h1>Consignment Invoice</h1>
+    <div class="sub">${escHtml(consignor.name)} — ${fmtMonth(month)}</div>
+    <table>
+      <thead><tr><th>Item</th><th>Date</th><th>Sale</th><th>Fees</th><th>Net</th><th>Owed to You</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="5">Total Owed</td><td>${fmt(total)}</td></tr></tfoot>
+    </table>
+    </body></html>
+  `);
+  win.document.close();
+  win.focus();
+  win.print();
+}
+
 // One-time import of Jeff's Trains consignment spreadsheet.
 // Fees are derived as Sale - (Ippys + Jeff) since the sheet's own
 // "After Fees" column was inconsistent; splitPct is Jeff's exact
@@ -407,6 +469,13 @@ function getConsignorOwed(consignorId) {
   return itemIds.reduce((sum, id) => sum + getConsignmentItemStats(id).owed, 0);
 }
 
+function getSaleCut(sale) {
+  const item = state.consignmentItems.find(i => i.id === sale.itemId);
+  const net = (sale.price || 0) - (sale.fees || 0);
+  const splitPct = item ? (item.splitPct || 0) : 0;
+  return net * (splitPct / 100);
+}
+
 // ── Helpers ───────────────────────────────────────────────────
 const escHtml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const catIcon = cat => ({ games: '🎮', cards: '🃏', toys: '🧸', other: '📦' }[cat] || '📦');
@@ -414,6 +483,7 @@ const capitalize = s => s.charAt(0).toUpperCase() + s.slice(1);
 const fmt = n => '$' + Math.abs(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 const fmtSigned = n => (n < 0 ? '-' : '') + fmt(n);
 const fmtDate = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+const fmtMonth = m => new Date(m + '-01T12:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 const today = () => new Date().toISOString().split('T')[0];
 
 // ── Render ────────────────────────────────────────────────────
@@ -966,6 +1036,7 @@ function renderConsignorDetail() {
       : s.fullyPaid
         ? `<span class="badge badge-paid">Paid Out</span>`
         : `<span class="badge badge-due">Payout Due</span>`;
+    const showMarkPaid = s.salesCount > 0 && !s.fullyPaid;
     return `
       <div class="lot-card" data-goto-consignment-item="${item.id}">
         <div class="lot-card-header">
@@ -982,6 +1053,7 @@ function renderConsignorDetail() {
             <span class="${s.owed > 0 ? 'negative' : 'positive'}">${fmt(s.owed)}</span>
           </div>
         </div>
+        ${showMarkPaid ? `<button class="btn-sm-action btn-sm-paid" data-mark-item-paid="${item.id}" style="margin-top:0.6rem;width:100%">✓ Mark Paid — ${fmt(s.owed)}</button>` : ''}
       </div>`;
   };
 
@@ -993,6 +1065,7 @@ function renderConsignorDetail() {
           <span class="breadcrumb">Consignment / ${escHtml(consignor.name)}</span>
         </div>
         <div class="header-actions">
+          <button class="btn btn-ghost" id="open-invoice-btn">🧾 Invoice</button>
           <button class="btn btn-ghost" id="edit-consignor-btn">Edit</button>
           <button class="btn btn-danger" id="delete-consignor-btn">Delete Consignor</button>
         </div>
@@ -1513,6 +1586,69 @@ function renderModal() {
         <div class="modal-footer">
           <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
           <button class="btn btn-primary" id="csaleitem-submit-btn">Record Sale</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  if (state.modal === 'invoice') {
+    const consignor = state.consignors.find(c => c.id === state.selectedConsignorId);
+    if (!consignor) return '';
+    const itemIds = state.consignmentItems.filter(i => i.consignorId === consignor.id).map(i => i.id);
+    const allSales = state.consignmentSales.filter(s => itemIds.includes(s.itemId));
+    const months = [...new Set(allSales.map(s => s.date.slice(0, 7)))].sort().reverse();
+    const month = state.invoiceMonth || months[0] || today().slice(0, 7);
+    const monthSales = allSales.filter(s => s.date.slice(0, 7) === month).sort((a, b) => new Date(a.date) - new Date(b.date));
+    const selectedIds = state.invoiceSaleIds || [];
+    const total = monthSales.filter(s => selectedIds.includes(s.id)).reduce((sum, s) => sum + getSaleCut(s), 0);
+
+    return `${overlay}
+      <div class="modal modal-wide">
+        <div class="modal-header">
+          <h3>🧾 Invoice — ${escHtml(consignor.name)}</h3>
+          <button class="modal-close" id="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+          ${months.length === 0 ? `
+            <p class="text-dim">No sales recorded yet for this consignor.</p>
+          ` : `
+            <div class="form-group">
+              <label>Month</label>
+              <select id="invoice-month-select" class="select">
+                ${months.map(m => `<option value="${m}" ${m === month ? 'selected' : ''}>${fmtMonth(m)}</option>`).join('')}
+              </select>
+            </div>
+            <div class="table-wrap">
+              <table class="table">
+                <thead><tr><th></th><th>Item</th><th>Date</th><th>Sale</th><th>Fees</th><th>Net</th><th>Owed</th></tr></thead>
+                <tbody>
+                  ${monthSales.map(s => {
+                    const item = state.consignmentItems.find(i => i.id === s.itemId);
+                    const net = (s.price || 0) - (s.fees || 0);
+                    const cut = getSaleCut(s);
+                    return `
+                      <tr>
+                        <td><input type="checkbox" data-invoice-sale-checkbox="${s.id}" ${selectedIds.includes(s.id) ? 'checked' : ''}></td>
+                        <td>${escHtml(item ? item.name : 'Unknown')}${s.paidOut ? ' <span class="badge badge-paid">Paid</span>' : ''}</td>
+                        <td>${fmtDate(s.date)}</td>
+                        <td>${fmt(s.price)}</td>
+                        <td>${fmt(s.fees || 0)}</td>
+                        <td>${fmt(net)}</td>
+                        <td>${fmt(cut)}</td>
+                      </tr>`;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+            <div class="pnl-row pnl-total" style="margin-top:1rem"><span>Total Owed (selected)</span><span class="positive">${fmt(total)}</span></div>
+          `}
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" id="modal-cancel">Close</button>
+          ${months.length > 0 ? `
+            <button class="btn btn-outline" id="invoice-print-btn">🖨️ Print Invoice</button>
+            <button class="btn btn-primary" id="invoice-mark-paid-btn">✓ Mark Selected Paid</button>
+          ` : ''}
         </div>
       </div>
     </div>`;
@@ -2154,6 +2290,69 @@ function bindApp() {
       if (sale) await toggleConsignmentSalePaid(sale);
     })
   );
+
+  // Consignment — quick mark item paid (from item card)
+  document.querySelectorAll('[data-mark-item-paid]').forEach(btn =>
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      if (confirm('Mark all outstanding sales for this item as paid to the consignor?')) {
+        await markItemSalesPaid(btn.dataset.markItemPaid);
+      }
+    })
+  );
+
+  // Consignment — open invoice modal
+  document.getElementById('open-invoice-btn')?.addEventListener('click', () => {
+    const itemIds = state.consignmentItems.filter(i => i.consignorId === state.selectedConsignorId).map(i => i.id);
+    const allSales = state.consignmentSales.filter(s => itemIds.includes(s.itemId));
+    const months = [...new Set(allSales.map(s => s.date.slice(0, 7)))].sort().reverse();
+    const month = months[0] || today().slice(0, 7);
+    state.invoiceMonth = month;
+    state.invoiceSaleIds = allSales.filter(s => s.date.slice(0, 7) === month).map(s => s.id);
+    state.modal = 'invoice';
+    render();
+  });
+
+  // Consignment — invoice month change
+  document.getElementById('invoice-month-select')?.addEventListener('change', e => {
+    const month = e.target.value;
+    const itemIds = state.consignmentItems.filter(i => i.consignorId === state.selectedConsignorId).map(i => i.id);
+    const monthSales = state.consignmentSales.filter(s => itemIds.includes(s.itemId) && s.date.slice(0, 7) === month);
+    state.invoiceMonth = month;
+    state.invoiceSaleIds = monthSales.map(s => s.id);
+    render();
+  });
+
+  // Consignment — invoice checkbox toggle
+  document.querySelectorAll('[data-invoice-sale-checkbox]').forEach(cb =>
+    cb.addEventListener('change', () => {
+      const id = cb.dataset.invoiceSaleCheckbox;
+      if (cb.checked) {
+        if (!state.invoiceSaleIds.includes(id)) state.invoiceSaleIds.push(id);
+      } else {
+        state.invoiceSaleIds = state.invoiceSaleIds.filter(x => x !== id);
+      }
+      render();
+    })
+  );
+
+  // Consignment — print invoice
+  document.getElementById('invoice-print-btn')?.addEventListener('click', () => {
+    const consignor = state.consignors.find(c => c.id === state.selectedConsignorId);
+    const selectedSales = state.consignmentSales.filter(s => state.invoiceSaleIds.includes(s.id));
+    if (selectedSales.length === 0) { alert('Select at least one sale to print.'); return; }
+    printInvoice(consignor, selectedSales, state.invoiceMonth);
+  });
+
+  // Consignment — mark selected invoice sales as paid
+  document.getElementById('invoice-mark-paid-btn')?.addEventListener('click', async () => {
+    if (state.invoiceSaleIds.length === 0) { alert('Select at least one sale.'); return; }
+    if (confirm(`Mark ${state.invoiceSaleIds.length} selected sale(s) as paid?`)) {
+      await markSalesPaid(state.invoiceSaleIds);
+      state.modal = null;
+      render();
+    }
+  });
 }
 
 // ── Init ──────────────────────────────────────────────────────

@@ -437,6 +437,7 @@ body {
   display: flex;
   flex-direction: column;
 }
+.modal-wide { max-width: 720px; }
 
 .modal-header {
   display: flex;
@@ -506,6 +507,7 @@ body {
 .btn-sm-action:hover { background: rgba(255,255,255,0.12); }
 .btn-sm-edit { background: rgba(59,130,246,0.12); color: #3b82f6; }
 .btn-sm-del  { background: rgba(239,68,68,0.12);  color: #ef4444; }
+.btn-sm-paid { background: rgba(16,185,129,0.15); color: #10b981; }
 
 .action-cell { display: flex; gap: 4px; }
 .item-note { font-size: 0.75rem; color: var(--sub); margin-top: 2px; }
