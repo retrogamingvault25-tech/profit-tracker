@@ -327,27 +327,29 @@ function printInvoice(consignor, sales, month) {
 // share of that net so dollar amounts match the sheet precisely.
 async function importJeffsTrains() {
   const consignorId = 'consignor_jeff_trains';
+  // splitPct is Jeff's % of the GROSS sale price (your cut comes off the top,
+  // his cut absorbs the fees) — set so the dollar amounts reproduce the sheet exactly.
   const rows = [
-    { name: '6-18321 Lionel', category: 'toys', sale: 215.00, fees: 34.23, splitPct: 58.39, date: '2026-05-27', paidDate: '2026-05-27' },
-    { name: 'Spiderman Shattered Dimensions', category: 'games', sale: 104.95, fees: 15.84, splitPct: 62.31, date: '2026-05-27', paidDate: '2026-05-27' },
-    { name: '6-16074 Lionel', category: 'toys', sale: 44.99, fees: 7.40, splitPct: 58.13, date: '2026-06-01', paidDate: '2026-06-01' },
-    { name: '6-38151 and 6-38152', category: 'toys', sale: 233.99, fees: 29.80, splitPct: 59.90, date: '2026-06-03', paidDate: '2026-06-03' },
-    { name: '6-16610 Lionel', category: 'toys', sale: 14.99, fees: 3.37, splitPct: 54.91, date: '2026-06-05', paidDate: '2026-06-05' },
-    { name: '6-18404 Lionel', category: 'toys', sale: 46.99, fees: 7.25, splitPct: 58.63, date: '2026-06-09', paidDate: '2026-06-09' },
-    { name: '6-17801 Lionel', category: 'toys', sale: 22.95, fees: 5.53, splitPct: 53.89, date: '2026-06-26', paidDate: '2026-06-26' },
-    { name: '6-16173 Lionel', category: 'toys', sale: 59.95, fees: 7.75, splitPct: 59.77, date: '2026-07-01', paidDate: '2026-07-01' },
-    { name: '6-18157 Lionel', category: 'toys', sale: 170.00, fees: 22.10, splitPct: 59.77, date: '2026-07-09', paidDate: '2026-07-09' },
-    { name: '6-18918/6-18929 Lionel', category: 'toys', sale: 165.00, fees: 21.45, splitPct: 59.77, date: '2026-07-22', paidDate: '2026-07-22' },
-    { name: 'PS3 Games', category: 'games', sale: 162.00, fees: 17.82, splitPct: 60.67, date: '2026-07-30', paidDate: '2026-07-30' },
-    { name: '6-26775 Lionel', category: 'toys', sale: 36.95, fees: 4.80, splitPct: 59.81, date: '2026-08-01', paidDate: '2026-09-08' },
-    { name: '6-19706 Lionel', category: 'toys', sale: 42.99, fees: 10.50, splitPct: 60.30, date: '2026-08-05', paidDate: '2026-09-08' },
-    { name: '6-19929 Lionel', category: 'toys', sale: 14.99, fees: 1.99, splitPct: 65.38, date: '2026-08-05', paidDate: '2026-09-08' },
+    { name: '6-18321 Lionel', category: 'toys', sale: 215.00, fees: 34.23, splitPct: 65.00, date: '2026-05-27', paidDate: '2026-05-27' },
+    { name: 'Spiderman Shattered Dimensions', category: 'games', sale: 104.95, fees: 15.84, splitPct: 68.00, date: '2026-05-27', paidDate: '2026-05-27' },
+    { name: '6-16074 Lionel', category: 'toys', sale: 44.99, fees: 7.40, splitPct: 65.01, date: '2026-06-01', paidDate: '2026-06-01' },
+    { name: '6-38151 and 6-38152', category: 'toys', sale: 233.99, fees: 29.80, splitPct: 65.00, date: '2026-06-03', paidDate: '2026-06-03' },
+    { name: '6-16610 Lionel', category: 'toys', sale: 14.99, fees: 3.37, splitPct: 65.04, date: '2026-06-05', paidDate: '2026-06-05' },
+    { name: '6-18404 Lionel', category: 'toys', sale: 46.99, fees: 7.25, splitPct: 65.01, date: '2026-06-09', paidDate: '2026-06-09' },
+    { name: '6-17801 Lionel', category: 'toys', sale: 22.95, fees: 5.53, splitPct: 65.01, date: '2026-06-26', paidDate: '2026-06-26' },
+    { name: '6-16173 Lionel', category: 'toys', sale: 59.95, fees: 7.75, splitPct: 64.97, date: '2026-07-01', paidDate: '2026-07-01' },
+    { name: '6-18157 Lionel', category: 'toys', sale: 170.00, fees: 22.10, splitPct: 65.00, date: '2026-07-09', paidDate: '2026-07-09' },
+    { name: '6-18918/6-18929 Lionel', category: 'toys', sale: 165.00, fees: 21.45, splitPct: 65.00, date: '2026-07-22', paidDate: '2026-07-22' },
+    { name: 'PS3 Games', category: 'games', sale: 162.00, fees: 17.82, splitPct: 65.00, date: '2026-07-30', paidDate: '2026-07-30' },
+    { name: '6-26775 Lionel', category: 'toys', sale: 36.95, fees: 4.80, splitPct: 65.01, date: '2026-08-01', paidDate: '2026-09-08' },
+    { name: '6-19706 Lionel', category: 'toys', sale: 42.99, fees: 10.50, splitPct: 69.99, date: '2026-08-05', paidDate: '2026-09-08' },
+    { name: '6-19929 Lionel', category: 'toys', sale: 14.99, fees: 1.99, splitPct: 69.98, date: '2026-08-05', paidDate: '2026-09-08' },
   ];
   const batch = writeBatch(db);
   batch.set(doc(db, 'consignors', consignorId), {
     id: consignorId,
     name: 'Jeff',
-    splitPct: 60,
+    splitPct: 65,
     notes: "Imported from Jeff's Trains spreadsheet",
     createdAt: new Date().toISOString(),
   });
@@ -432,6 +434,16 @@ function getChallengeStats() {
 }
 
 // ── Consignment Stats ─────────────────────────────────────────
+// Your cut comes off the gross sale price first (unaffected by fees);
+// the consignor's cut absorbs the fees out of what's left.
+function splitSale(sale, splitPct) {
+  const price = sale.price || 0;
+  const fees = sale.fees || 0;
+  const yourCut = price * ((100 - splitPct) / 100);
+  const consignorCut = price - yourCut - fees;
+  return { yourCut, consignorCut };
+}
+
 function getConsignmentItemStats(itemId) {
   const item = state.consignmentItems.find(i => i.id === itemId);
   const sales = state.consignmentSales.filter(s => s.itemId === itemId);
@@ -439,13 +451,14 @@ function getConsignmentItemStats(itemId) {
   const totalGross = sales.reduce((s, sale) => s + (sale.price || 0), 0);
   const totalFees = sales.reduce((s, sale) => s + (sale.fees || 0), 0);
   const totalNet = totalGross - totalFees;
-  const consignorCut = totalNet * (splitPct / 100);
-  const yourCut = totalNet - consignorCut;
+  let consignorCut = 0, yourCut = 0;
+  sales.forEach(sale => {
+    const split = splitSale(sale, splitPct);
+    consignorCut += split.consignorCut;
+    yourCut += split.yourCut;
+  });
   const unpaidSales = sales.filter(s => !s.paidOut);
-  const owed = unpaidSales.reduce((s, sale) => {
-    const net = (sale.price || 0) - (sale.fees || 0);
-    return s + net * (splitPct / 100);
-  }, 0);
+  const owed = unpaidSales.reduce((s, sale) => s + splitSale(sale, splitPct).consignorCut, 0);
   const fullyPaid = sales.length > 0 && unpaidSales.length === 0;
   return { totalGross, totalFees, totalNet, splitPct, consignorCut, yourCut, owed, fullyPaid, salesCount: sales.length };
 }
@@ -471,9 +484,8 @@ function getConsignorOwed(consignorId) {
 
 function getSaleCut(sale) {
   const item = state.consignmentItems.find(i => i.id === sale.itemId);
-  const net = (sale.price || 0) - (sale.fees || 0);
   const splitPct = item ? (item.splitPct || 0) : 0;
-  return net * (splitPct / 100);
+  return splitSale(sale, splitPct).consignorCut;
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -1065,6 +1077,7 @@ function renderConsignorDetail() {
           <span class="breadcrumb">Consignment / ${escHtml(consignor.name)}</span>
         </div>
         <div class="header-actions">
+          ${consignor.id === 'consignor_jeff_trains' ? `<button class="btn btn-outline btn-sm" id="resync-jeffs-trains-btn">🔧 Re-sync Split %</button>` : ''}
           <button class="btn btn-ghost" id="open-invoice-btn">🧾 Invoice</button>
           <button class="btn btn-ghost" id="edit-consignor-btn">Edit</button>
           <button class="btn btn-danger" id="delete-consignor-btn">Delete Consignor</button>
@@ -1161,7 +1174,7 @@ function renderConsignmentItemDetail() {
                 ${sales.map(sale => {
                   const fees = sale.fees || 0;
                   const net = sale.price - fees;
-                  const cut = net * (item.splitPct / 100);
+                  const cut = splitSale(sale, item.splitPct).consignorCut;
                   return `
                   <tr>
                     <td><span class="platform-tag">${escHtml(sale.platform || '—')}</span></td>
@@ -2141,6 +2154,13 @@ function bindApp() {
   // Consignment — one-time import of Jeff's Trains spreadsheet
   document.getElementById('import-jeffs-trains-btn')?.addEventListener('click', async () => {
     if (confirm("Import Jeff's Trains consignment data (1 consignor, 14 items, 14 sales, all marked paid)?")) {
+      await importJeffsTrains();
+    }
+  });
+
+  // Consignment — re-sync Jeff's Trains data onto the corrected split formula
+  document.getElementById('resync-jeffs-trains-btn')?.addEventListener('click', async () => {
+    if (confirm("Re-sync Jeff's Trains data to the corrected split %? This overwrites the Jeff consignor, its 14 items, and their sales back to the original sheet's values — any manual edits you've made to them since importing will be lost.")) {
       await importJeffsTrains();
     }
   });
