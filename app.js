@@ -41,6 +41,7 @@ const state = {
   editComic: null,
   editConsignor: null,
   editConsignmentItem: null,
+  editConsignmentSale: null,
   filterCategory: 'all',
   sortLots: 'date-desc',
 };
@@ -246,6 +247,10 @@ async function deleteConsignmentItem(id) {
 async function addConsignmentSale(data) {
   const id = 'csaleitem_' + Date.now();
   await setDoc(doc(db, 'consignment_sales', id), { id, ...data, paidOut: false, createdAt: new Date().toISOString() });
+}
+
+async function updateConsignmentSale(id, data) {
+  await setDoc(doc(db, 'consignment_sales', id), data);
 }
 
 async function deleteConsignmentSale(id) {
@@ -1196,7 +1201,10 @@ function renderConsignmentItemDetail() {
                         ${sale.paidOut ? '✓ Paid' : 'Mark Paid'}
                       </button>
                     </td>
-                    <td><button class="btn-delete-sale" data-consignment-sale-id="${sale.id}">✕</button></td>
+                    <td style="white-space:nowrap">
+                      <button class="btn-sm-action" data-edit-consignment-sale="${sale.id}" style="margin-right:4px">Edit</button>
+                      <button class="btn-delete-sale" data-consignment-sale-id="${sale.id}">✕</button>
+                    </td>
                   </tr>`;
                 }).join('')}
               </tbody>
@@ -1572,32 +1580,34 @@ function renderModal() {
     </div>`;
   }
 
-  if (state.modal === 'add-consignment-sale') {
+  if (state.modal === 'add-consignment-sale' || state.modal === 'edit-consignment-sale') {
+    const isEdit = state.modal === 'edit-consignment-sale';
+    const sale = isEdit ? state.editConsignmentSale : null;
     return `${overlay}
       <div class="modal">
         <div class="modal-header">
-          <h3>Record Sale</h3>
+          <h3>${isEdit ? 'Edit Sale' : 'Record Sale'}</h3>
           <button class="modal-close" id="modal-close">✕</button>
         </div>
         <div class="modal-body">
           <div class="form-row">
             <div class="form-group">
               <label>Sale Price *</label>
-              <input type="number" id="csaleitem-price" class="input" placeholder="0.00" min="0" step="0.01">
+              <input type="number" id="csaleitem-price" class="input" placeholder="0.00" min="0" step="0.01" value="${isEdit ? sale.price : ''}">
             </div>
             <div class="form-group">
               <label>Shipping Charged</label>
-              <input type="number" id="csaleitem-shipping" class="input" placeholder="0.00" min="0" step="0.01">
+              <input type="number" id="csaleitem-shipping" class="input" placeholder="0.00" min="0" step="0.01" value="${isEdit ? (sale.shipping || '') : ''}">
             </div>
           </div>
           <div class="form-row">
             <div class="form-group">
               <label>Fees</label>
-              <input type="number" id="csaleitem-fees" class="input" placeholder="0.00" min="0" step="0.01">
+              <input type="number" id="csaleitem-fees" class="input" placeholder="0.00" min="0" step="0.01" value="${isEdit ? (sale.fees || '') : ''}">
             </div>
             <div class="form-group">
               <label>Date Sold *</label>
-              <input type="date" id="csaleitem-date" class="input" value="${today()}">
+              <input type="date" id="csaleitem-date" class="input" value="${isEdit ? sale.date : today()}">
             </div>
           </div>
           <div class="form-group">
@@ -1605,14 +1615,14 @@ function renderModal() {
             <select id="csaleitem-platform" class="select">
               <option value="">— Select —</option>
               ${['eBay','Facebook Marketplace','Local','Whatnot','Amazon','In-Person','Other'].map(p =>
-                `<option value="${p}">${p}</option>`
+                `<option value="${p}" ${isEdit && sale.platform === p ? 'selected' : ''}>${p}</option>`
               ).join('')}
             </select>
           </div>
         </div>
         <div class="modal-footer">
           <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
-          <button class="btn btn-primary" id="csaleitem-submit-btn">Record Sale</button>
+          <button class="btn btn-primary" id="csaleitem-submit-btn">${isEdit ? 'Save Changes' : 'Record Sale'}</button>
         </div>
       </div>
     </div>`;
@@ -1971,6 +1981,7 @@ function bindApp() {
     state.editChallengeLot = null;
     state.editConsignor = null;
     state.editConsignmentItem = null;
+    state.editConsignmentSale = null;
     render();
   };
 
@@ -2302,16 +2313,29 @@ function bindApp() {
     const fees = parseFloat(document.getElementById('csaleitem-fees').value) || 0;
     const date = document.getElementById('csaleitem-date').value;
     if (isNaN(price) || !date) { alert('Please fill in price and date.'); return; }
-    await addConsignmentSale({
-      itemId: state.selectedConsignmentItemId,
+    const data = {
       price,
       shipping,
       fees,
       date,
       platform: document.getElementById('csaleitem-platform').value,
-    });
-    state.modal = null; render();
+    };
+    if (state.modal === 'edit-consignment-sale') {
+      await updateConsignmentSale(state.editConsignmentSale.id, { ...state.editConsignmentSale, ...data });
+    } else {
+      await addConsignmentSale({ itemId: state.selectedConsignmentItemId, ...data });
+    }
+    state.modal = null; state.editConsignmentSale = null; render();
   });
+
+  // Consignment — edit sale button
+  document.querySelectorAll('[data-edit-consignment-sale]').forEach(btn =>
+    btn.addEventListener('click', () => {
+      state.editConsignmentSale = state.consignmentSales.find(s => s.id === btn.dataset.editConsignmentSale) || null;
+      state.modal = 'edit-consignment-sale';
+      render();
+    })
+  );
 
   // Consignment — delete sale
   document.querySelectorAll('[data-consignment-sale-id]').forEach(btn =>
