@@ -280,12 +280,13 @@ async function markItemSalesPaid(itemId) {
 function printInvoice(consignor, sales, month) {
   const rows = sales.map(s => {
     const item = state.consignmentItems.find(i => i.id === s.itemId);
-    const net = (s.price || 0) - (s.fees || 0);
+    const net = (s.price || 0) + (s.shipping || 0) - (s.fees || 0);
     const cut = getSaleCut(s);
     return `<tr>
       <td>${escHtml(item ? item.name : 'Unknown')}</td>
       <td>${fmtDate(s.date)}</td>
       <td>${fmt(s.price)}</td>
+      <td>${fmt(s.shipping || 0)}</td>
       <td>${fmt(s.fees || 0)}</td>
       <td>${fmt(net)}</td>
       <td>${fmt(cut)}</td>
@@ -304,15 +305,15 @@ function printInvoice(consignor, sales, month) {
       th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #ddd; font-size: 13px; }
       th { background: #f3f3f3; }
       tfoot td { font-weight: 700; border-top: 2px solid #333; }
-      td:nth-child(3), td:nth-child(4), td:nth-child(5), td:nth-child(6),
-      th:nth-child(3), th:nth-child(4), th:nth-child(5), th:nth-child(6) { text-align: right; }
+      td:nth-child(3), td:nth-child(4), td:nth-child(5), td:nth-child(6), td:nth-child(7),
+      th:nth-child(3), th:nth-child(4), th:nth-child(5), th:nth-child(6), th:nth-child(7) { text-align: right; }
     </style></head><body>
     <h1>Consignment Invoice</h1>
     <div class="sub">${escHtml(consignor.name)} — ${fmtMonth(month)}</div>
     <table>
-      <thead><tr><th>Item</th><th>Date</th><th>Sale</th><th>Fees</th><th>Net</th><th>Owed to You</th></tr></thead>
+      <thead><tr><th>Item</th><th>Date</th><th>Sale</th><th>Shipping</th><th>Fees</th><th>Net</th><th>Owed to You</th></tr></thead>
       <tbody>${rows}</tbody>
-      <tfoot><tr><td colspan="5">Total Owed</td><td>${fmt(total)}</td></tr></tfoot>
+      <tfoot><tr><td colspan="6">Total Owed</td><td>${fmt(total)}</td></tr></tfoot>
     </table>
     </body></html>
   `);
@@ -434,13 +435,15 @@ function getChallengeStats() {
 }
 
 // ── Consignment Stats ─────────────────────────────────────────
-// Your cut comes off the gross sale price first (unaffected by fees);
-// the consignor's cut absorbs the fees out of what's left.
+// Your cut is a straight percentage of the item sale price only —
+// shipping never factors into it. Fees come out of the consignor's
+// side, and any leftover shipping (after fees) flows to them too.
 function splitSale(sale, splitPct) {
   const price = sale.price || 0;
+  const shipping = sale.shipping || 0;
   const fees = sale.fees || 0;
   const yourCut = price * ((100 - splitPct) / 100);
-  const consignorCut = price - yourCut - fees;
+  const consignorCut = (price + shipping) - yourCut - fees;
   return { yourCut, consignorCut };
 }
 
@@ -449,8 +452,9 @@ function getConsignmentItemStats(itemId) {
   const sales = state.consignmentSales.filter(s => s.itemId === itemId);
   const splitPct = item ? (item.splitPct || 0) : 0;
   const totalGross = sales.reduce((s, sale) => s + (sale.price || 0), 0);
+  const totalShipping = sales.reduce((s, sale) => s + (sale.shipping || 0), 0);
   const totalFees = sales.reduce((s, sale) => s + (sale.fees || 0), 0);
-  const totalNet = totalGross - totalFees;
+  const totalNet = totalGross + totalShipping - totalFees;
   let consignorCut = 0, yourCut = 0;
   sales.forEach(sale => {
     const split = splitSale(sale, splitPct);
@@ -460,7 +464,7 @@ function getConsignmentItemStats(itemId) {
   const unpaidSales = sales.filter(s => !s.paidOut);
   const owed = unpaidSales.reduce((s, sale) => s + splitSale(sale, splitPct).consignorCut, 0);
   const fullyPaid = sales.length > 0 && unpaidSales.length === 0;
-  return { totalGross, totalFees, totalNet, splitPct, consignorCut, yourCut, owed, fullyPaid, salesCount: sales.length };
+  return { totalGross, totalShipping, totalFees, totalNet, splitPct, consignorCut, yourCut, owed, fullyPaid, salesCount: sales.length };
 }
 
 function getConsignmentOverallStats() {
@@ -1036,10 +1040,10 @@ function renderConsignorDetail() {
 
   const totals = items.reduce((acc, i) => {
     const s = getConsignmentItemStats(i.id);
-    acc.totalGross += s.totalGross; acc.totalFees += s.totalFees; acc.totalNet += s.totalNet;
+    acc.totalGross += s.totalGross; acc.totalShipping += s.totalShipping; acc.totalFees += s.totalFees; acc.totalNet += s.totalNet;
     acc.consignorCut += s.consignorCut; acc.yourCut += s.yourCut; acc.owed += s.owed;
     return acc;
-  }, { totalGross: 0, totalFees: 0, totalNet: 0, consignorCut: 0, yourCut: 0, owed: 0 });
+  }, { totalGross: 0, totalShipping: 0, totalFees: 0, totalNet: 0, consignorCut: 0, yourCut: 0, owed: 0 });
 
   const itemCard = (item) => {
     const s = getConsignmentItemStats(item.id);
@@ -1093,6 +1097,7 @@ function renderConsignorDetail() {
         </div>
         <div class="lot-pnl">
           <div class="pnl-row"><span>Gross Sales</span><span>${fmt(totals.totalGross)}</span></div>
+          <div class="pnl-row"><span>Shipping</span><span>${fmt(totals.totalShipping)}</span></div>
           <div class="pnl-row"><span>Fees</span><span class="negative">-${fmt(totals.totalFees)}</span></div>
           <div class="pnl-row"><span>Net Revenue</span><span class="positive">${fmt(totals.totalNet)}</span></div>
           <div class="pnl-row"><span>Consignor Cut</span><span>${fmt(totals.consignorCut)}</span></div>
@@ -1150,6 +1155,7 @@ function renderConsignmentItemDetail() {
         <div class="lot-pnl">
           <div class="pnl-row"><span>Split</span><span>${item.splitPct}% to consignor</span></div>
           <div class="pnl-row"><span>Gross Sales</span><span>${fmt(stats.totalGross)}</span></div>
+          <div class="pnl-row"><span>Shipping</span><span>${fmt(stats.totalShipping)}</span></div>
           <div class="pnl-row"><span>Fees</span><span class="negative">-${fmt(stats.totalFees)}</span></div>
           <div class="pnl-row"><span>Net Revenue</span><span class="positive">${fmt(stats.totalNet)}</span></div>
           <div class="pnl-row"><span>Consignor Cut</span><span>${fmt(stats.consignorCut)}</span></div>
@@ -1169,17 +1175,19 @@ function renderConsignmentItemDetail() {
         ` : `
           <div class="table-wrap">
             <table class="table">
-              <thead><tr><th>Platform</th><th>Date</th><th>Sale</th><th>Fees</th><th>Net</th><th>Consignor Cut</th><th>Payout</th><th></th></tr></thead>
+              <thead><tr><th>Platform</th><th>Date</th><th>Sale</th><th>Shipping</th><th>Fees</th><th>Net</th><th>Consignor Cut</th><th>Payout</th><th></th></tr></thead>
               <tbody>
                 ${sales.map(sale => {
                   const fees = sale.fees || 0;
-                  const net = sale.price - fees;
+                  const shipping = sale.shipping || 0;
+                  const net = sale.price + shipping - fees;
                   const cut = splitSale(sale, item.splitPct).consignorCut;
                   return `
                   <tr>
                     <td><span class="platform-tag">${escHtml(sale.platform || '—')}</span></td>
                     <td>${fmtDate(sale.date)}</td>
                     <td>${fmt(sale.price)}</td>
+                    <td>${shipping > 0 ? fmt(shipping) : '—'}</td>
                     <td class="negative">${fees > 0 ? '-' + fmt(fees) : '—'}</td>
                     <td class="positive">${fmt(net)}</td>
                     <td>${fmt(cut)}</td>
@@ -1578,13 +1586,19 @@ function renderModal() {
               <input type="number" id="csaleitem-price" class="input" placeholder="0.00" min="0" step="0.01">
             </div>
             <div class="form-group">
+              <label>Shipping Charged</label>
+              <input type="number" id="csaleitem-shipping" class="input" placeholder="0.00" min="0" step="0.01">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
               <label>Fees</label>
               <input type="number" id="csaleitem-fees" class="input" placeholder="0.00" min="0" step="0.01">
             </div>
-          </div>
-          <div class="form-group">
-            <label>Date Sold *</label>
-            <input type="date" id="csaleitem-date" class="input" value="${today()}">
+            <div class="form-group">
+              <label>Date Sold *</label>
+              <input type="date" id="csaleitem-date" class="input" value="${today()}">
+            </div>
           </div>
           <div class="form-group">
             <label>Platform</label>
@@ -1633,11 +1647,11 @@ function renderModal() {
             </div>
             <div class="table-wrap">
               <table class="table">
-                <thead><tr><th></th><th>Item</th><th>Date</th><th>Sale</th><th>Fees</th><th>Net</th><th>Owed</th></tr></thead>
+                <thead><tr><th></th><th>Item</th><th>Date</th><th>Sale</th><th>Shipping</th><th>Fees</th><th>Net</th><th>Owed</th></tr></thead>
                 <tbody>
                   ${monthSales.map(s => {
                     const item = state.consignmentItems.find(i => i.id === s.itemId);
-                    const net = (s.price || 0) - (s.fees || 0);
+                    const net = (s.price || 0) + (s.shipping || 0) - (s.fees || 0);
                     const cut = getSaleCut(s);
                     return `
                       <tr>
@@ -1645,6 +1659,7 @@ function renderModal() {
                         <td>${escHtml(item ? item.name : 'Unknown')}${s.paidOut ? ' <span class="badge badge-paid">Paid</span>' : ''}</td>
                         <td>${fmtDate(s.date)}</td>
                         <td>${fmt(s.price)}</td>
+                        <td>${fmt(s.shipping || 0)}</td>
                         <td>${fmt(s.fees || 0)}</td>
                         <td>${fmt(net)}</td>
                         <td>${fmt(cut)}</td>
@@ -2283,12 +2298,14 @@ function bindApp() {
   // Consignment — submit sale
   document.getElementById('csaleitem-submit-btn')?.addEventListener('click', async () => {
     const price = parseFloat(document.getElementById('csaleitem-price').value);
+    const shipping = parseFloat(document.getElementById('csaleitem-shipping').value) || 0;
     const fees = parseFloat(document.getElementById('csaleitem-fees').value) || 0;
     const date = document.getElementById('csaleitem-date').value;
     if (isNaN(price) || !date) { alert('Please fill in price and date.'); return; }
     await addConsignmentSale({
       itemId: state.selectedConsignmentItemId,
       price,
+      shipping,
       fees,
       date,
       platform: document.getElementById('csaleitem-platform').value,
